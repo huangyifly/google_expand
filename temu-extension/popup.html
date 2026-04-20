@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 340px;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+      color: #1f2937;
+      background:
+        radial-gradient(circle at top right, rgba(255, 210, 167, 0.9), transparent 38%),
+        linear-gradient(180deg, #fff8f1 0%, #ffffff 34%);
+    }
+
+    .topbar {
+      padding: 12px 14px;
+      color: #fff;
+      background: linear-gradient(135deg, #f15a24, #ff7a18);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .topbar h3 { font-size: 15px; font-weight: 700; }
+    .topbar .ver { font-size: 11px; opacity: 0.85; }
+
+    .phase-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.84);
+      border-bottom: 1px solid #f3e2d4;
+    }
+    .phase-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #cbd5e1;
+      flex-shrink: 0;
+    }
+    .phase-dot.idle { background: #94a3b8; }
+    .phase-dot.listing { background: #f59e0b; animation: pulse 1s infinite; }
+    .phase-dot.filtering { background: #ec4899; animation: pulse 1s infinite; }
+    .phase-dot.navigating { background: #06b6d4; animation: pulse 1s infinite; }
+    .phase-dot.detail { background: #2563eb; animation: pulse 1s infinite; }
+    .phase-dot.related { background: #7c3aed; animation: pulse 1s infinite; }
+    .phase-dot.done { background: #16a34a; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.38} }
+    #phaseText { font-weight: 700; }
+    #phaseDesc { font-size: 11px; color: #6b7280; margin-left: auto; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 12px 14px 10px;
+    }
+    .stat-cell {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #f3e2d4;
+      border-radius: 12px;
+      padding: 9px 6px;
+      text-align: center;
+      box-shadow: 0 8px 18px rgba(241, 90, 36, 0.06);
+    }
+    .stat-cell .num { font-size: 18px; font-weight: 700; }
+    .stat-cell .lbl { margin-top: 3px; font-size: 10px; color: #6b7280; }
+    .stat-cell.s1 .num { color: #f15a24; }
+    .stat-cell.s2 .num { color: #2563eb; }
+    .stat-cell.s3 .num { color: #7c3aed; }
+    .stat-cell.s4 .num { color: #16a34a; }
+
+    .body { padding: 0 14px 14px; }
+
+    #statusMsg {
+      min-height: 16px;
+      margin-bottom: 10px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: #6b7280;
+    }
+    #statusMsg.ok { color: #15803d; }
+    #statusMsg.err { color: #dc2626; }
+
+    .cfg-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .cfg-item label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 11px;
+      color: #6b7280;
+    }
+    .cfg-item input {
+      width: 100%;
+      padding: 7px 8px;
+      border: 1px solid #e7d5c9;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.9);
+      text-align: center;
+      font-size: 12px;
+    }
+    .cfg-item select {
+      width: 100%;
+      padding: 7px 8px;
+      border: 1px solid #e7d5c9;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.9);
+      font-size: 12px;
+      color: #1f2937;
+    }
+    .cfg-item input:disabled {
+      background: #f8fafc;
+      color: #94a3b8;
+    }
+    .cfg-item select:disabled {
+      background: #f8fafc;
+      color: #94a3b8;
+    }
+    .workflow-card {
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border: 1px solid #f3e2d4;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 8px 18px rgba(241, 90, 36, 0.06);
+    }
+    .workflow-title {
+      font-size: 11px;
+      color: #6b7280;
+      margin-bottom: 6px;
+    }
+    .workflow-current {
+      font-size: 16px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .workflow-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      font-size: 11px;
+      color: #6b7280;
+    }
+    .workflow-pill {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(241, 90, 36, 0.12);
+      color: #f15a24;
+      font-weight: 700;
+    }
+    .cfg-switch {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid #f3e2d4;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.92);
+    }
+    .cfg-switch .meta {
+      min-width: 0;
+    }
+    .cfg-switch .title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+    }
+    .cfg-switch .desc {
+      margin-top: 3px;
+      font-size: 10px;
+      line-height: 1.4;
+      color: #6b7280;
+    }
+    .cfg-switch input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      accent-color: #f15a24;
+    }
+
+    button {
+      width: 100%;
+      margin-bottom: 7px;
+      padding: 10px 12px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      transition: opacity 0.15s ease;
+    }
+    button:hover:not(:disabled) { opacity: 0.88; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-main { color: #fff; background: linear-gradient(135deg, #f15a24, #ff7a18); }
+    .btn-main.running { background: linear-gradient(135deg, #475569, #64748b); }
+    .btn-export { color: #fff; background: linear-gradient(135deg, #16a34a, #22c55e); }
+    .btn-clear { color: #475569; background: #eef2f7; }
+
+    .hint {
+      margin-top: 8px;
+      font-size: 10px;
+      line-height: 1.45;
+      color: #94a3b8;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h3>Temu 数据采集</h3>
+    <span class="ver">v5.0</span>
+  </div>
+
+  <div class="phase-bar">
+    <div class="phase-dot idle" id="phaseDot"></div>
+    <span id="phaseText">空闲</span>
+    <span id="phaseDesc">尚未开始</span>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-cell s1"><div class="num" id="sTotal">0</div><div class="lbl">已采集</div></div>
+    <div class="stat-cell s2"><div class="num" id="sDetail">0</div><div class="lbl">商品完善</div></div>
+    <div class="stat-cell s3"><div class="num" id="sRelated">0</div><div class="lbl">新目标追加</div></div>
+    <div class="stat-cell s4"><div class="num" id="sQueue">0</div><div class="lbl">待处理</div></div>
+  </div>
+
+  <div class="body">
+    <div id="statusMsg">打开 Temu 商品页面后点击开始采集</div>
+    <div class="workflow-card">
+      <div class="workflow-title">当前工作流状态</div>
+      <div class="workflow-current" id="workflowCurrent">LIST_DISCOVERY</div>
+      <div class="workflow-meta">
+        <span class="workflow-pill" id="workflowModePill">保守辅助模式</span>
+        <span class="workflow-pill" id="taskModePill">Discovery Mode</span>
+      </div>
+    </div>
+
+    <div class="cfg-grid">
+      <div class="cfg-item">
+        <label>采集模式</label>
+        <select id="cfgCollectionMode">
+          <option value="CONSERVATIVE">保守辅助模式</option>
+          <option value="AGGRESSIVE">激进自动模式</option>
+        </select>
+      </div>
+      <div class="cfg-item">
+        <label>任务模式</label>
+        <select id="cfgTaskMode">
+          <option value="DISCOVERY">Discovery Mode</option>
+          <option value="HARVEST">Harvest Mode</option>
+          <option value="GRAPH">Graph Mode</option>
+        </select>
+      </div>
+      <div class="cfg-item">
+        <label>加载间隔（秒）</label>
+        <input type="number" id="cfgInterval" value="5" min="2" max="60" />
+      </div>
+      <div class="cfg-item">
+        <label>初始批次（条）</label>
+        <input type="number" id="cfgBatch" value="60" min="20" max="500" />
+      </div>
+      <div class="cfg-item" style="grid-column: 1 / -1;">
+        <label>总上限（条）</label>
+        <input type="number" id="cfgLimit" value="10000" min="100" />
+      </div>
+      <div class="cfg-switch">
+        <div class="meta">
+          <div class="title">自动点击“查看更多商品”</div>
+          <div class="desc">作用于当前商品流页面。开启后，命中“查看更多商品”按钮时会自动点击并等待页面加载。</div>
+        </div>
+        <input type="checkbox" id="cfgAutoLoadMore" />
+      </div>
+      <div class="cfg-switch">
+        <div class="meta">
+          <div class="title">显示右下角调试面板</div>
+          <div class="desc">可在运行中随时开关页面右下角的 Temu Scraper Debug 面板。</div>
+        </div>
+        <input type="checkbox" id="cfgDebugPanel" />
+      </div>
+    </div>
+
+    <button id="btnMain" class="btn-main">开始采集</button>
+    <button id="btnExport" class="btn-export">导出 CSV</button>
+    <button id="btnClear" class="btn-clear">清空数据</button>
+
+    <div class="hint">运行中会自动禁用参数输入，采集结束后可直接导出 CSV。</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

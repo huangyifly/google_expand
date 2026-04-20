@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Temu 数据采集",
+  "version": "5.0",
+  "description": "采集 Temu 商品数据，支持初始播种、详情抓取、联想商品队列循环与 CSV 导出",
+  "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "tabs", "alarms"],
+  "host_permissions": [
+    "http://192.168.31.71:8000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.temu.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

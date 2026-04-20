@@ -1,0 +1,4 @@
+#!/bin/zsh
+export PATH="/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11:/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/bin:$PATH" #FlyEnv-ID-8J5E4S4D4vSNSUPlkaWBs41RoS39M9cf
+export PATH="/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11:/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/bin:$PATH" #FlyEnv-ID-nDsFb6i3fbSg0kCw6NCSY0FBLaRk6vRG
+export PATH="/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11:/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/bin:$PATH" #FlyEnv-ID-3NzAMqd1VwJs8Dv23mvZ29gu13ykOx09
