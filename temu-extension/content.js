@@ -1,9 +1,44 @@
 /**
- * Temu 数据采集 - content.js v5.1
+ * ============================================================================
+ * Temu 数据采集 - content.js v5.2
+ * ============================================================================
+ *
+ * 【模块说明】
+ * 本文件是 Chrome 扩展的内容脚本，负责在 temu.com 页面执行采集逻辑。
+ * 代码按功能区域组织，详见 src/ 目录下的模块化参考文件：
+ *
+ *   src/constants/   - 常量定义 (FSM状态、配置等)
+ *   src/utils/       - 工具函数 (sleep、随机数、文本处理)
+ *   src/state/       - 状态管理 (getState、patchState)
+ *   src/messaging/   - 消息通信 (与 background/popup 交互)
+ *   src/dom/         - DOM 操作 (查找、高亮、点击)
+ *   src/extraction/  - 数据提取 (商品字段解析)
+ *   src/workflow/    - 工作流控制 (FSM状态机)
+ *   src/debug/       - 调试面板
+ *   src/upload/      - 批量上传
+ *
+ * 【主流程】
+ * 1. 页面加载 → main() 入口 → 检查 state.running
+ * 2. URL 含商品锚点 → scrapeAndUpsertCurrentProduct() 补齐字段
+ * 3. batch 未满 → productStreamTick() 继续采集
+ * 4. batch 已满 → runInitialFilter() 筛选目标 → 高亮等待跳转
+ * 5. 循环直到达到 totalLimit 或无更多商品
+ *
+ * 【FSM 状态流转】
+ * LIST_DISCOVERY → TARGET_SELECTED → NAVIGATE_TO_DETAIL → DETAIL_SCRAPE
+ *       ↑                                                           ↓
+ *       └──────────────── RELATED_SCAN ←────────────────────── EDGE_COLLECT
+ *
+ * 【采集模式】
+ * - CONSERVATIVE: 保守辅助模式，需手动确认"查看更多"
+ * - AGGRESSIVE: 激进自动模式，全自动点击和滚动
+ *
+ * ============================================================================
  * 采集流程围绕"商品流（ProductStream）"推进：
  *   - 任何含商品卡片 (`a[href*="-g-"]`) 的子树都被视作商品流；
  *   - 主流（document 层主区）/ 联想流 (#goodsRecommend) / 推荐流等一视同仁；
  *   - 不再以列表/详情做强分界；详情页同样具备 sweep / scrape / batch / load more 能力。
+ * ============================================================================
  */
 
 const STORE_KEY = 'temu_v5_state';
@@ -860,22 +895,26 @@ function notifyState(state, pageType = getNormalizedPageType()) {
 }
 
 /**
- * 枚举当前页所有"商品流"。一个商品流 = 含 N 张商品卡的 DOM 子树。
+ * 枚举当前页所有"商品流"。
  *
- * 当前实现：
- *   - 主流：document 减去联想区子树（任意 Temu 页都尝试枚举，未必有卡）；
- *   - 联想流：详情页 `#goodsRecommend` 区域；
- * 任何时候发现没有卡片的流，会被自动剔除，避免后续 sweep / scrape 空跑。
+ * 【什么是商品流】
+ * 一个商品流 = 含 N 张商品卡片的 DOM 子树。
+ * Temu 页面可能有多个商品流区域：
+ *   - 主流: document 下的主要商品列表 (列表页/搜索页)
+ *   - 联想流: 详情页底部的 #goodsRecommend 区域
  *
- * 后续要支持"猜你喜欢/类似商品"等区域，只需在这里 push 一个新 stream 即可。
+ * 【返回结构】
+ * 每个流对象包含:
+ *   - id: 流标识 ('main' / 'related')
+ *   - sourceTag: 来源标签，用于标记采集到的商品来源
+ *   - getCards(): 获取该流下的所有商品卡 DOM
+ *   - getLoadMoreBtn(): 获取"查看更多"按钮 (主流有，联想流无)
+ *   - ensureReady(): 确保流已准备好 (联想流需要先滚动到底部触发渲染)
  *
- * @returns {Array<{
- *   id: 'main'|'related'|string,
- *   sourceTag: 'listing'|'related',
- *   getCards: () => Element[],
- *   getLoadMoreBtn: () => HTMLElement | null,
- *   ensureReady: () => Promise<boolean>,
- * }>}
+ * 【扩展说明】
+ * 要支持"猜你喜欢/类似商品"等新区域，只需在这里 push 一个新 stream 对象。
+ *
+ * @returns {Array<object>} 商品流对象数组
  */
 function enumerateProductStreams() {
     const streams = [];
@@ -917,12 +956,23 @@ function enumerateProductStreams() {
 }
 
 /**
- * 对单个商品流跑一遍 sweep + scrape。共享给 `productStreamTick`。
+ * 对单个商品流执行采集 (sweep + scrape)。
  *
- * 抓取后给每条 item 打上 `source = stream.sourceTag`，让上传 / 去重 / 优先级规则可以追溯来源。
+ * 【流程说明】
+ * 1. 先调用 sweepCardsIntoView 把卡片滚入视口，触发 Temu 的懒加载
+ * 2. 获取所有商品卡片 DOM 节点
+ * 3. 遍历每张卡，调用 extractItemFromCard 提取字段
+ * 4. 按 goodsId 去重，避免重复采集
+ * 5. 给每条记录打上 source 标签 (listing/related)
  *
- * @param {ReturnType<typeof enumerateProductStreams>[number]} stream
- * @returns {Promise<Array<Record<string, unknown>>>}
+ * 【参数说明】
+ * - stream.id: 流标识 ('main' / 'related')
+ * - stream.sourceTag: 来源标签 ('listing' / 'related')
+ * - stream.getCards(): 获取该流下的所有商品卡
+ * - stream.ensureReady(): 确保流已准备好 (如联想区需要先滚动到底部)
+ *
+ * @param {object} stream 商品流对象
+ * @returns {Promise<Array>} 采集到的商品列表
  */
 async function harvestStream(stream) {
     await sweepCardsIntoView({streamId: stream.id});
