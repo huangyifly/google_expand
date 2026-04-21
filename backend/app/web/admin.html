@@ -282,6 +282,23 @@
       return value == null || value === "" ? "-" : value;
     }
 
+    function pad2(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function formatDateTime(value) {
+      if (value == null || value === "") return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return safe(value);
+      const yyyy = date.getFullYear();
+      const MM = pad2(date.getMonth() + 1);
+      const dd = pad2(date.getDate());
+      const HH = pad2(date.getHours());
+      const mm = pad2(date.getMinutes());
+      const ss = pad2(date.getSeconds());
+      return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
+    }
+
     function renderOverview(data) {
       document.getElementById("statProducts").textContent = fmt.format(data.total_products || 0);
       document.getElementById("statSnapshots").textContent = fmt.format(data.total_snapshots || 0);
@@ -290,7 +307,7 @@
       document.getElementById("completedRuns").textContent = fmt.format(data.completed_runs || 0);
       document.getElementById("relatedSourceCount").textContent = fmt.format(data.related_sources || 0);
       document.getElementById("distinctSnapshotGoods").textContent = fmt.format(data.distinct_snapshot_goods || 0);
-      document.getElementById("latestSnapshotBadge").textContent = `最近快照：${safe(data.latest_snapshot_at)}`;
+      document.getElementById("latestSnapshotBadge").textContent = `最近快照：${formatDateTime(data.latest_snapshot_at)}`;
     }
 
     function renderRuns(items) {
@@ -299,8 +316,8 @@
         <tr>
           <td class="mono">${safe(item.run_uuid)}</td>
           <td>${safe(item.status)}</td>
-          <td>${safe(item.started_at)}</td>
-          <td>${safe(item.ended_at)}</td>
+          <td>${formatDateTime(item.started_at)}</td>
+          <td>${formatDateTime(item.ended_at)}</td>
           <td>${fmt.format(item.total_collected || 0)}</td>
         </tr>
       `).join("");

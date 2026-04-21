@@ -255,6 +255,23 @@
       return value == null || value === "" ? "-" : value;
     }
 
+    function pad2(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function formatDateTime(value) {
+      if (value == null || value === "") return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return safe(value);
+      const yyyy = date.getFullYear();
+      const MM = pad2(date.getMonth() + 1);
+      const dd = pad2(date.getDate());
+      const HH = pad2(date.getHours());
+      const mm = pad2(date.getMinutes());
+      const ss = pad2(date.getSeconds());
+      return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
+    }
+
     function buildUrl() {
       const params = new URLSearchParams({
         q: state.keyword,
@@ -276,11 +293,11 @@
           <td>${safe(item.sales_text)}</td>
           <td>${safe(item.star_rating)}</td>
           <td>${safe(item.review_count)}</td>
-          <td>${safe(item.listing_time)}</td>
+          <td>${formatDateTime(item.listing_time)}</td>
 <!--          <td class="raw-html-cell">${safe(item.raw_html)}</td>-->
           <td class="raw-text-cell">${safe(item.raw_text)}</td>
           <td>${safe(item.last_source)}</td>
-          <td>${safe(item.last_seen_at)}</td>
+          <td>${formatDateTime(item.last_seen_at)}</td>
         </tr>
       `).join("");
     }
