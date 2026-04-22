@@ -4,6 +4,12 @@ from sqlalchemy.orm import Session
 from app.models import CrawlEdge, CrawlRun, Product, ProductSnapshot
 
 
+def decimal_to_text(value) -> str:
+    if value is None:
+        return ""
+    return format(value, "f").rstrip("0").rstrip(".")
+
+
 def get_dashboard_overview(db: Session) -> dict:
     total_products = db.query(func.count(Product.id)).scalar() or 0
     total_snapshots = db.query(func.count(ProductSnapshot.id)).scalar() or 0
@@ -147,6 +153,12 @@ def get_dashboard_products(
             "listing_time": item.current_listing_time or "",
             "raw_text": item.current_raw_text or "",
             "raw_html": item.current_raw_html or "",
+            "listing_length_cm": decimal_to_text(item.listing_length_cm),
+            "listing_width_cm": decimal_to_text(item.listing_width_cm),
+            "listing_height_cm": decimal_to_text(item.listing_height_cm),
+            "listing_weight_g": decimal_to_text(item.listing_weight_g),
+            "listing_declared_price": decimal_to_text(item.listing_declared_price),
+            "listing_suggested_price": decimal_to_text(item.listing_suggested_price),
             "last_source": item.last_source or "",
             "last_seen_at": item.last_seen_at.isoformat() if item.last_seen_at else None,
             "updated_at": item.updated_at.isoformat() if item.updated_at else None,

@@ -203,6 +203,7 @@
     .btn-main { color: #fff; background: linear-gradient(135deg, #f15a24, #ff7a18); }
     .btn-main.running { background: linear-gradient(135deg, #475569, #64748b); }
     .btn-export { color: #fff; background: linear-gradient(135deg, #16a34a, #22c55e); }
+    .btn-listing { color: #fff; background: linear-gradient(135deg, #2563eb, #06b6d4); }
     .btn-clear { color: #475569; background: #eef2f7; }
 
     .hint {
@@ -289,10 +290,11 @@
     </div>
 
     <button id="btnMain" class="btn-main">开始采集</button>
+    <button id="btnOneClickListing" class="btn-listing">执行一键上架</button>
     <button id="btnExport" class="btn-export">导出 CSV</button>
     <button id="btnClear" class="btn-clear">清空数据</button>
 
-    <div class="hint">运行中会自动禁用参数输入，采集结束后可直接导出 CSV。</div>
+    <div class="hint">采集与上架是两条独立链路；打开商品详情页后可手动执行一键上架。</div>
   </div>
 
   <script src="popup.js"></script>

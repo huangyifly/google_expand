@@ -13,6 +13,7 @@ const phaseText = document.getElementById('phaseText');
 const phaseDesc = document.getElementById('phaseDesc');
 const statusMsg = document.getElementById('statusMsg');
 const btnMain = document.getElementById('btnMain');
+const btnOneClickListing = document.getElementById('btnOneClickListing');
 const btnExport = document.getElementById('btnExport');
 const btnClear = document.getElementById('btnClear');
 
@@ -267,6 +268,17 @@ port.onMessage.addListener((message) => {
     return;
   }
 
+  if (message.action === 'oneClickListingClicked') {
+    setPhase('detail', `已点击“一键上架”：${message.goodsId || '-'}`);
+    setStatus(
+      message.groundingClicked
+        ? '上架流程已执行，云启上架页面的一键上架也已点击。'
+        : `已点击 Temu 一键上架，云启页面未自动完成：${message.groundingError || '等待超时'}`,
+      message.groundingClicked ? 'ok' : 'err'
+    );
+    return;
+  }
+
   if (message.action === 'relatedQueued') {
     setPhase('related', message.added > 0 ? '已追加 1 条新目标' : '当前商品没有新的关联命中');
     updateStats({ queueLen: message.queueLen });
@@ -338,6 +350,26 @@ btnMain.addEventListener('click', () => {
     setRunningUI(false);
     setPhase('idle');
     setStatus('采集已停止。');
+  });
+});
+
+// 独立上架按钮：不依赖采集是否运行，只要求当前有打开的 Temu 商品详情页。
+btnOneClickListing.addEventListener('click', () => {
+  btnOneClickListing.disabled = true;
+  setStatus('已发送上架指令，正在判断当前页面阶段...');
+  sendToContent('clickOneClickListing', {}, (response) => {
+    btnOneClickListing.disabled = false;
+    if (!response?.ok) {
+      setStatus(response?.error || '一键上架执行失败，请确认当前页是 Temu 商品详情页。', 'err');
+      return;
+    }
+    setPhase('detail', `已点击“一键上架”：${response.goodsId || '-'}`);
+    setStatus(
+      response.groundingClicked
+        ? '上架流程已执行，云启上架页面的一键上架也已点击。'
+        : `已点击 Temu 一键上架，云启页面未自动完成：${response.groundingError || '等待超时'}`,
+      response.groundingClicked ? 'ok' : 'err'
+    );
   });
 });
 

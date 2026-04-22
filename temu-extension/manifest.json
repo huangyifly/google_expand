@@ -3,9 +3,15 @@
   "name": "Temu 数据采集",
   "version": "5.0",
   "description": "采集 Temu 商品数据，支持初始播种、详情抓取、联想商品队列循环与 CSV 导出",
-  "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "tabs", "alarms"],
+  "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "tabs", "alarms", "browsingData", "cookies", "debugger"],
   "host_permissions": [
-    "http://47.107.78.215:8000/*"
+    "http://47.107.78.215:8000/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*",
+    "https://www.yunqishuju.com/*",
+    "https://agentseller.temu.com/*",
+    "*://temu.com/*",
+    "*://*.temu.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -22,6 +28,15 @@
     {
       "matches": ["*://*.temu.com/*"],
       "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://47.107.78.215:8000/*",
+        "http://127.0.0.1:8000/*",
+        "http://localhost:8000/*"
+      ],
+      "js": ["site-data-bridge.js"],
       "run_at": "document_idle"
     }
   ]

@@ -53,6 +53,23 @@
       background: rgba(241, 90, 36, 0.12);
       color: var(--accent);
     }
+    .btn-link.danger, button.danger {
+      background: #fff1f2;
+      color: #be123c;
+      border: 1px solid #fecdd3;
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .clear-status {
+      margin: 0 0 12px;
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .clear-status.ok { color: #15803d; }
+    .clear-status.err { color: #dc2626; }
     .card {
       background: var(--card);
       border: 1px solid var(--line);
@@ -131,6 +148,42 @@
       line-height: 1.5;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
+    .link-cell {
+      min-width: 180px;
+      word-break: break-all;
+    }
+    .detail-links {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 120px;
+    }
+    .listing-config-cell {
+      min-width: 260px;
+    }
+    .listing-config-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .listing-config-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .listing-config-grid input {
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 12px;
+    }
+    .listing-config-save {
+      margin-top: 8px;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+    }
     .pagination {
       margin-top: 14px;
       display: flex;
@@ -163,6 +216,7 @@
         <p>独立的商品列表页，支持关键字搜索、分页和排序。首页保留总体统计，这里专门看商品明细。</p>
       </div>
       <div class="actions">
+        <button id="clearTemuSiteBtn" class="danger" type="button">清除 Temu Cookie/Session</button>
         <a class="btn-link secondary" href="/admin">返回统计首页</a>
       </div>
     </div>
@@ -201,6 +255,7 @@
         <div id="summary">加载中...</div>
         <div id="sortSummary">排序：-</div>
       </div>
+      <div id="clearTemuSiteStatus" class="clear-status"></div>
 
       <div class="table-wrap">
         <table>
@@ -213,6 +268,8 @@
               <th>星级</th>
               <th>评价数</th>
               <th>上架时间</th>
+              <th>上架参数</th>
+              <th>详情页</th>
 <!--              <th>商品元素 HTML</th>-->
               <th>商品元素文本</th>
               <th>来源</th>
@@ -251,6 +308,41 @@
       return res.json();
     }
 
+    function setClearTemuSiteStatus(message, type = "") {
+      const status = document.getElementById("clearTemuSiteStatus");
+      status.textContent = message;
+      status.className = `clear-status ${type}`.trim();
+    }
+
+    function requestClearTemuSiteData() {
+      return new Promise((resolve, reject) => {
+        const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const timer = window.setTimeout(() => {
+          window.removeEventListener("message", handleMessage);
+          reject(new Error("未收到扩展响应，请确认 Temu 数据采集扩展已安装并刷新本页。"));
+        }, 10000);
+
+        function handleMessage(event) {
+          if (event.source !== window) return;
+          if (event.data?.type !== "TEMU_EXTENSION_CLEAR_SITE_DATA_RESULT") return;
+          if (event.data.requestId !== requestId) return;
+          window.clearTimeout(timer);
+          window.removeEventListener("message", handleMessage);
+          if (event.data.ok) {
+            resolve(event.data.details || {});
+            return;
+          }
+          reject(new Error(event.data.error || "清理 Temu 站点数据失败。"));
+        }
+
+        window.addEventListener("message", handleMessage);
+        window.postMessage({
+          type: "TEMU_EXTENSION_CLEAR_SITE_DATA",
+          requestId,
+        }, window.location.origin);
+      });
+    }
+
     function safe(value) {
       return value == null || value === "" ? "-" : value;
     }
@@ -270,6 +362,59 @@
       const mm = pad2(date.getMinutes());
       const ss = pad2(date.getSeconds());
       return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
+    }
+
+    function extractTemuDetailUrl(rawHtml) {
+      if (!rawHtml) return "";
+      const match = String(rawHtml).match(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i);
+      if (!match || !match[1]) return "";
+      const href = match[1].trim().replace(/&amp;/g, "&");
+      if (!href || /^javascript:/i.test(href)) return "";
+      if (/^https?:\/\//i.test(href)) return href;
+      return `https://www.temu.com/${href.replace(/^\/+/, "")}`;
+    }
+
+    function renderDetailLink(rawHtml) {
+      const url = extractTemuDetailUrl(rawHtml);
+      if (!url) return "-";
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">查看详情</a>`;
+    }
+
+    function renderTemuSearchLink(goodsId) {
+      if (!goodsId) return "-";
+      const url = `https://www.temu.com/ca/search_result.html?search_key=${encodeURIComponent(goodsId)}`;
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">Temu 链接 2</a>`;
+    }
+
+    function renderDetailLinks(item) {
+      return `
+        <div class="detail-links">
+          ${renderDetailLink(item.raw_html)}
+          ${renderTemuSearchLink(item.goods_id)}
+        </div>
+      `;
+    }
+
+    function renderListingConfig(item) {
+      const fields = [
+        ["listing_length_cm", "最长边(cm)"],
+        ["listing_width_cm", "次长边(cm)"],
+        ["listing_height_cm", "最短边(cm)"],
+        ["listing_weight_g", "重量(g)"],
+        ["listing_declared_price", "申报价"],
+        ["listing_suggested_price", "建议零售价"],
+      ];
+      return `
+        <div class="listing-config-grid" data-goods-id="${safe(item.goods_id)}">
+          ${fields.map(([key, label]) => `
+            <label>
+              <span>${label}</span>
+              <input data-listing-field="${key}" value="${safe(item[key]) === "-" ? "" : safe(item[key])}" inputmode="decimal" />
+            </label>
+          `).join("")}
+        </div>
+        <button class="listing-config-save" type="button" data-save-listing-config="${safe(item.goods_id)}">保存参数</button>
+      `;
     }
 
     function buildUrl() {
@@ -294,6 +439,8 @@
           <td>${safe(item.star_rating)}</td>
           <td>${safe(item.review_count)}</td>
           <td>${formatDateTime(item.listing_time)}</td>
+          <td class="listing-config-cell">${renderListingConfig(item)}</td>
+          <td class="link-cell">${renderDetailLinks(item)}</td>
 <!--          <td class="raw-html-cell">${safe(item.raw_html)}</td>-->
           <td class="raw-text-cell">${safe(item.raw_text)}</td>
           <td>${safe(item.last_source)}</td>
@@ -312,6 +459,43 @@
       document.getElementById("pageInfo").textContent = `第 ${state.page} / ${Math.max(state.totalPages, 1)} 页`;
       document.getElementById("summary").textContent = `共 ${fmt.format(state.total)} 条商品`;
       document.getElementById("sortSummary").textContent = `排序：${state.sortBy} / ${state.sortOrder}`;
+    }
+
+    async function saveListingConfig(goodsId, button) {
+      const container = document.querySelector(`.listing-config-grid[data-goods-id="${CSS.escape(goodsId)}"]`);
+      if (!container) return;
+
+      const payload = {};
+      container.querySelectorAll("[data-listing-field]").forEach((input) => {
+        payload[input.dataset.listingField] = input.value.trim();
+      });
+
+      button.disabled = true;
+      const previousText = button.textContent;
+      button.textContent = "保存中...";
+      try {
+        const response = await fetch(`/api/dashboard/products/${encodeURIComponent(goodsId)}/listing-config`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.detail || `保存失败：${response.status}`);
+        }
+        button.textContent = "已保存";
+        setTimeout(() => {
+          button.textContent = previousText;
+        }, 1200);
+      } catch (error) {
+        button.textContent = "保存失败";
+        alert(error.message);
+        setTimeout(() => {
+          button.textContent = previousText;
+        }, 1200);
+      } finally {
+        button.disabled = false;
+      }
     }
 
     async function loadProducts() {
@@ -336,6 +520,22 @@
     }
 
     document.getElementById("searchBtn").addEventListener("click", () => submitSearch(true));
+    document.getElementById("clearTemuSiteBtn").addEventListener("click", async () => {
+      const button = document.getElementById("clearTemuSiteBtn");
+      button.disabled = true;
+      setClearTemuSiteStatus("正在清除 Temu Cookie、Local Storage、Session Storage 和本地站点数据...");
+      try {
+        const details = await requestClearTemuSiteData();
+        setClearTemuSiteStatus(
+          `已清除 Temu 站点数据：Cookie ${details.cookies || 0} 个，Local Storage 已清除，Session Storage 已处理 ${details.framesCleared || 0} 个页面上下文。`,
+          "ok"
+        );
+      } catch (error) {
+        setClearTemuSiteStatus(error.message, "err");
+      } finally {
+        button.disabled = false;
+      }
+    });
     document.getElementById("keyword").addEventListener("keydown", (event) => {
       if (event.key === "Enter") submitSearch(true);
     });
@@ -353,6 +553,11 @@
         state.page += 1;
         loadProducts().catch(renderError);
       }
+    });
+    document.getElementById("productsBody").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-save-listing-config]");
+      if (!button) return;
+      saveListingConfig(button.dataset.saveListingConfig, button);
     });
 
     loadProducts().catch(renderError);

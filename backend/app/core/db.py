@@ -38,6 +38,18 @@ def ensure_products_schema() -> None:
             connection.execute(text("ALTER TABLE products ADD COLUMN current_raw_text VARCHAR(4096)"))
         if "current_raw_html" not in existing_columns:
             connection.execute(text("ALTER TABLE products ADD COLUMN current_raw_html TEXT"))
+        if "listing_length_cm" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN listing_length_cm NUMERIC(10, 2)"))
+        if "listing_width_cm" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN listing_width_cm NUMERIC(10, 2)"))
+        if "listing_height_cm" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN listing_height_cm NUMERIC(10, 2)"))
+        if "listing_weight_g" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN listing_weight_g NUMERIC(10, 2)"))
+        if "listing_declared_price" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN listing_declared_price NUMERIC(12, 2)"))
+        if "listing_suggested_price" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN listing_suggested_price NUMERIC(12, 2)"))
 
 
 def ensure_product_snapshots_schema() -> None:

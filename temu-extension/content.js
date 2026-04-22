@@ -43,6 +43,12 @@
 
 const STORE_KEY = 'temu_v5_state';
 const DETAIL_RENDER_DELAY = 2500;
+const ONE_CLICK_LISTING_TEXT = '一键上架';
+const ONE_CLICK_LISTING_SELECTORS = [
+    '.gdyqmod',
+    'div > div > div.title-bar > div > div.item.yjsj',
+];
+const ONE_CLICK_LISTING_DELAY_MS = 5000;
 const HUMAN_SCROLL_MAX_STEPS = 12;
 const UPLOAD_BATCH_SIZE = 25;
 const LOAD_MORE_WATCH_TIMEOUT = 3000;
@@ -1273,6 +1279,137 @@ async function scrapeAndUpsertCurrentProduct() {
         remaining: refreshed.targetQueue.length,
         detailDone: refreshed.stats.detailDone || 0,
     });
+}
+
+/**
+ * 独立上架流程入口：由 popup 可视按钮主动触发，和采集流程解耦。
+ * 当前页面必须是 Temu 商品详情页，然后查找文本为"一键上架"的可点击元素并点击。
+ *
+ * @returns {Promise<{ok: boolean, goodsId?: string, error?: string}>}
+ */
+async function clickOneClickListingButton() {
+    const goodsId = getGoodsIdFromUrl(location.href);
+    if (!goodsId || !hasCurrentProductAnchor()) {
+        return {ok: false, error: '当前页面不是 Temu 商品详情页，请先打开商品详情页。'};
+    }
+
+    showToast('将在 5 秒后点击“一键上架”', 'info');
+    await sleep(ONE_CLICK_LISTING_DELAY_MS + randomInt(-350, 350));
+
+    const button = findOneClickListingButton();
+    if (!button) {
+        debugLog('one-click-listing-button-missing', {goodsId});
+        return {ok: false, goodsId, error: '当前详情页未找到“一键上架”按钮。'};
+    }
+
+    scrollElementToViewportAnchor(button, 0.45);
+    await sleep(randomInt(350, 900));
+
+    const clickable = resolveOneClickListingClickable(button);
+    const didHumanClick = clickable ? await humanClick(clickable) : false;
+    if (clickable) {
+        await sleep(randomInt(80, 180));
+        clickable.click();
+    }
+
+    debugLog('one-click-listing-clicked', {
+        goodsId,
+        tagName: clickable?.tagName || '',
+        text: normalizeText(clickable?.innerText || button.innerText || ''),
+    });
+    showToast('已点击“一键上架”', 'ok');
+    notify({
+        action: 'oneClickListingClicked',
+        goodsId,
+    });
+    return {ok: true, goodsId};
+}
+
+/**
+ * 查找页面上文本内容为"一键上架"的候选元素。
+ * 先匹配 button/a/[role=button]，再允许 span/div 文字节点向上找可点击容器。
+ *
+ * @returns {Element | null}
+ */
+function findOneClickListingButton() {
+    for (const preferredSelector of ONE_CLICK_LISTING_SELECTORS) {
+        const selectorMatch = Array.from(document.querySelectorAll(preferredSelector))
+            .find((el) => {
+                if (!isVisibleElement(el)) return false;
+                const text = normalizeText(el.innerText || el.textContent);
+                return preferredSelector === '.gdyqmod'
+                    || !text
+                    || text === ONE_CLICK_LISTING_TEXT
+                    || text.includes(ONE_CLICK_LISTING_TEXT);
+            });
+        if (selectorMatch) {
+            debugLog('one-click-listing-selector-hit', {
+                selector: preferredSelector,
+                text: normalizeText(selectorMatch.innerText || selectorMatch.textContent || ''),
+            });
+            return selectorMatch;
+        }
+    }
+
+    const selector = 'button, a, [role="button"], span, div';
+    const candidates = Array.from(document.querySelectorAll(selector))
+        .filter((el) => {
+            if (!isVisibleElement(el)) return false;
+            return normalizeText(el.innerText || el.textContent) === ONE_CLICK_LISTING_TEXT;
+        });
+
+    if (!candidates.length) return null;
+
+    const seen = new Set();
+    const ranked = candidates
+        .map((el, index) => {
+            const clickable = resolveOneClickListingClickable(el);
+            const rect = clickable?.getBoundingClientRect();
+            const isNativeClickable = clickable?.matches?.('button, a, [role="button"]') || false;
+            return {
+                el,
+                clickable,
+                index,
+                isNativeClickable,
+                area: rect ? rect.width * rect.height : 0,
+            };
+        })
+        .filter((item) => {
+            if (!item.clickable || item.area <= 0) return false;
+            if (seen.has(item.clickable)) return false;
+            seen.add(item.clickable);
+            return true;
+        })
+        .sort((a, b) => {
+            if (a.isNativeClickable !== b.isNativeClickable) return a.isNativeClickable ? -1 : 1;
+            return a.index - b.index;
+        });
+
+    return ranked[0]?.clickable || null;
+}
+
+/**
+ * 从文字节点或包装层向上找真正的点击目标。
+ *
+ * @param {Element | null | undefined} element
+ * @returns {Element | null}
+ */
+function resolveOneClickListingClickable(element) {
+    return element?.closest?.('button, a, [role="button"]') || element || null;
+}
+
+/**
+ * 可见性判断，避免点到隐藏模板节点。
+ *
+ * @param {Element | null | undefined} element
+ * @returns {boolean}
+ */
+function isVisibleElement(element) {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
 }
 
 /**
@@ -3633,6 +3770,7 @@ function findLoadMoreBtn() {
  *   - triggerLoadMoreNow：popup 手动点"立即点击查看更多"按钮的入口；
  *   - setWorkflowState：外部强制迁移 FSM（排障用）；
  *   - getData：popup 拉 collected 数据用于导出 CSV；
+ *   - clickOneClickListing：独立上架流程，主动点击当前详情页的"一键上架"；
  *   - clearAll：清空 state，重置调试面板显隐状态。
  * 所有异步分支都 return true 保持 sendResponse 通道打开。
  */
@@ -3759,6 +3897,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.action === 'getData') {
         getState().then((state) => sendResponse({data: state.collected}));
+        return true;
+    }
+
+    if (message.action === 'clickOneClickListing') {
+        clickOneClickListingButton().then(sendResponse);
         return true;
     }
 
