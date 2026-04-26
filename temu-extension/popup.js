@@ -1,10 +1,9 @@
 /**
  * popup.js - 扩展弹窗 UI 的胶水层。
  *   - 与 background.js 建立 port 连接，接收 content.js 的进度推送并更新 UI；
- *   - 把按钮点击翻译成 runtime 消息（start/stop/getData/clearAll/setConfig）发给 background；
- *   - 导出 CSV / 清空本地数据 / 控制调试面板显隐。
- * 三组顶层数据：PHASES（阶段颜色文案）、WORKFLOW_LABELS（FSM 状态名映射）、
- * COLLECTION_MODE_LABELS / TASK_MODE_LABELS（采集/任务模式中文名）。
+ *   - 把按钮点击翻译成 runtime 消息（start/stop/clearAll/setConfig）发给 background；
+ *   - 清空本地流程状态。
+ * 顶层常量：PHASES（阶段颜色文案）、WORKFLOW_LABELS（FSM 状态中文映射）。
  */
 
 // DOM 引用：phase 展示、顶部状态条
@@ -14,25 +13,24 @@ const phaseDesc = document.getElementById('phaseDesc');
 const statusMsg = document.getElementById('statusMsg');
 const btnMain = document.getElementById('btnMain');
 const btnOneClickListing = document.getElementById('btnOneClickListing');
-const btnExport = document.getElementById('btnExport');
 const btnClear = document.getElementById('btnClear');
 
 const sTotal = document.getElementById('sTotal');
-const sDetail = document.getElementById('sDetail');
-const sRelated = document.getElementById('sRelated');
-const sQueue = document.getElementById('sQueue');
-const workflowCurrent = document.getElementById('workflowCurrent');
-const workflowModePill = document.getElementById('workflowModePill');
-const taskModePill = document.getElementById('taskModePill');
 
 const cfgCollectionMode = document.getElementById('cfgCollectionMode');
-const cfgTaskMode = document.getElementById('cfgTaskMode');
 const cfgInterval = document.getElementById('cfgInterval');
 const cfgBatch = document.getElementById('cfgBatch');
 const cfgLimit = document.getElementById('cfgLimit');
-const cfgAutoClick = document.getElementById('cfgAutoClick');
-const cfgAutoLoadMore = document.getElementById('cfgAutoLoadMore');
-const cfgDebugPanel = document.getElementById('cfgDebugPanel');
+const cfgRemoveLocalWarehouse = document.getElementById('cfgRemoveLocalWarehouse');
+const cfgLogVisible = document.getElementById('cfgLogVisible');
+
+const LOG_VISIBLE_KEY = 'temu_log_visible';
+
+// popup 打开时从 storage 读取日志面板偏好并同步 checkbox
+chrome.storage.local.get([LOG_VISIBLE_KEY], (result) => {
+  const visible = result[LOG_VISIBLE_KEY] !== false; // 默认显示
+  if (cfgLogVisible) cfgLogVisible.checked = visible;
+});
 
 let isRunning = false;
 
@@ -44,30 +42,29 @@ const PHASES = {
   detail: { dot: 'detail', text: '商品增强', desc: '补齐当前商品的更多信息' },
   related: { dot: 'related', text: '关联扩展', desc: '扫描并提取关联商品' },
   wind: { dot: 'filtering', text: '风控暂停', desc: '等待人工介入后恢复' },
-  done: { dot: 'done', text: '已完成', desc: '采集任务已结束，可导出 CSV' },
+  done: { dot: 'done', text: '已完成', desc: '采集任务已结束' },
 };
 
 const WORKFLOW_LABELS = {
-  LIST_DISCOVERY: 'LIST_DISCOVERY',
-  TARGET_SELECTED: 'TARGET_SELECTED',
-  NAVIGATE_TO_DETAIL: 'NAVIGATE_TO_DETAIL',
-  DETAIL_SCRAPE: 'DETAIL_SCRAPE',
-  RELATED_SCAN: 'RELATED_SCAN',
-  EDGE_COLLECT: 'EDGE_COLLECT',
-  PAUSE: 'PAUSE',
-  WIND_CONTROL: 'WIND_CONTROL',
+  LIST_DISCOVERY: '列表发现',
+  TARGET_SELECTED: '目标选中',
+  NAVIGATE_TO_DETAIL: '等待跳转详情',
+  DETAIL_SCRAPE: '详情补齐',
+  RELATED_SCAN: '关联扫描',
+  EDGE_COLLECT: '关系采集',
+  PAUSE: '暂停',
+  WIND_CONTROL: '风控暂停',
 };
 
-const COLLECTION_MODE_LABELS = {
-  CONSERVATIVE: '保守辅助模式',
-  AGGRESSIVE: '激进自动模式',
-};
+let currentPhase = 'idle';
+let currentPhaseDesc = '';
+let currentWorkflowLabel = WORKFLOW_LABELS.LIST_DISCOVERY;
 
-const TASK_MODE_LABELS = {
-  DISCOVERY: 'Discovery Mode',
-  HARVEST: 'Harvest Mode',
-  GRAPH: 'Graph Mode',
-};
+function renderPhaseDesc() {
+  const meta = PHASES[currentPhase] || PHASES.idle;
+  const phasePart = currentPhaseDesc || meta.desc;
+  phaseDesc.textContent = `${phasePart} ｜ ${currentWorkflowLabel}`;
+}
 
 /**
  * 更新当前阶段展示。查 PHASES 表，拿到小圆点颜色类名 + 主文案 + 默认描述，
@@ -77,9 +74,11 @@ const TASK_MODE_LABELS = {
  */
 function setPhase(phase, desc) {
   const meta = PHASES[phase] || PHASES.idle;
+  currentPhase = phase;
+  currentPhaseDesc = desc || '';
   phaseDot.className = `phase-dot ${meta.dot}`;
   phaseText.textContent = meta.text;
-  phaseDesc.textContent = desc || meta.desc;
+  renderPhaseDesc();
 }
 
 /**
@@ -94,61 +93,48 @@ function setStatus(text, type = '') {
 
 /**
  * 按"正在运行"/"已停止"两套 UI 切换：主按钮文字、配置项 disable 状态。
- * 调试面板开关故意始终保持 enable —— 运行中也允许临时打开/关闭右下角面板用于排障。
  * @param {boolean} running
  */
 function setRunningUI(running) {
   isRunning = running;
   btnMain.textContent = running ? '停止采集' : '开始采集';
   btnMain.classList.toggle('running', running);
-  [cfgCollectionMode, cfgTaskMode, cfgInterval, cfgBatch, cfgLimit, cfgAutoClick, cfgAutoLoadMore]
+  [cfgCollectionMode, cfgInterval, cfgBatch, cfgLimit]
     .filter(Boolean)
     .forEach((input) => {
     input.disabled = running;
   });
-  cfgDebugPanel.disabled = false;
+  if (cfgRemoveLocalWarehouse) cfgRemoveLocalWarehouse.disabled = false;
 }
 
 /**
- * 把 state 里的计数字段刷到 UI 卡片。每个字段都做存在性判断，避免"只传了部分字段的增量更新"
- * 把其他数字清成 undefined。
- * @param {{total?: number, queueLen?: number, stats?: {detailDone?: number, relatedAdded?: number}}} [payload]
+ * 把 state 里的计数字段刷到 UI。当前仅展示总采集量。
+ * @param {{total?: number}} [payload]
  */
 function updateStats(payload = {}) {
   if (payload.total !== undefined) sTotal.textContent = String(payload.total);
-  if (payload.queueLen !== undefined) sQueue.textContent = String(payload.queueLen);
-  if (payload.stats?.detailDone !== undefined) sDetail.textContent = String(payload.stats.detailDone);
-  if (payload.stats?.relatedAdded !== undefined) sRelated.textContent = String(payload.stats.relatedAdded);
 }
 
 /**
  * 把 state.config 回填到各个输入控件。用于 popup 首次打开、切换 run 之后的恢复。
- * showDebugPanel 字段缺省当 true 处理（默认开启调试面板）。
  * @param {Record<string, unknown>} [config]
  */
 function fillConfig(config = {}) {
   if (cfgCollectionMode && config.collectionMode !== undefined) cfgCollectionMode.value = config.collectionMode;
-  if (cfgTaskMode && config.taskMode !== undefined) cfgTaskMode.value = config.taskMode;
   if (config.intervalSec !== undefined) cfgInterval.value = config.intervalSec;
   if (config.batchSize !== undefined) cfgBatch.value = config.batchSize;
   if (config.totalLimit !== undefined) cfgLimit.value = config.totalLimit;
-  if (cfgAutoClick) cfgAutoClick.checked = Boolean(config.autoClickV1);
-  if (cfgAutoLoadMore) cfgAutoLoadMore.checked = Boolean(config.autoClickLoadMore);
-  cfgDebugPanel.checked = config.showDebugPanel !== false;
+  if (cfgRemoveLocalWarehouse) cfgRemoveLocalWarehouse.checked = config.removeLocalWarehouse !== false;
 }
 
 /**
- * 刷新底部 workflow 区：当前 FSM 状态名、采集模式徽标、任务模式徽标。
- * 参数允许是增量 payload（stateSync 推过来的），config 取不到就回退读当前 DOM 值。
- * @param {{workflowState?: string, config?: {collectionMode?: string, taskMode?: string}}} [payload]
+ * 刷新当前工作流状态显示（中文），并并入顶部 phase 描述行。
+ * @param {{workflowState?: string}} [payload]
  */
 function renderWorkflow(payload = {}) {
   const workflowState = payload.workflowState || 'LIST_DISCOVERY';
-  const collectionMode = payload.config?.collectionMode || cfgCollectionMode?.value || 'CONSERVATIVE';
-  const taskMode = payload.config?.taskMode || cfgTaskMode?.value || 'DISCOVERY';
-  workflowCurrent.textContent = WORKFLOW_LABELS[workflowState] || workflowState;
-  workflowModePill.textContent = COLLECTION_MODE_LABELS[collectionMode] || collectionMode;
-  taskModePill.textContent = TASK_MODE_LABELS[taskMode] || taskMode;
+  currentWorkflowLabel = WORKFLOW_LABELS[workflowState] || workflowState;
+  renderPhaseDesc();
 }
 
 /**
@@ -177,7 +163,7 @@ function sendToContent(action, extra = {}, callback) {
 
 /**
  * 首次打开 popup / 重新连上 port 时调用，主动拉一次 content.js 当前 state 做初始渲染。
- * "已停止但有历史数据"时还会顺带提示用户可以直接导出。
+ * "已停止但有历史数据"时提示用户可以继续采集。
  */
 function syncFromState() {
   sendToContent('getState', {}, (state) => {
@@ -188,7 +174,7 @@ function syncFromState() {
     fillConfig(state.config);
     renderWorkflow(state);
     if (!state.running && state.total > 0) {
-      setStatus(`当前已保存 ${state.total} 条数据，可继续采集或直接导出。`);
+      setStatus(`当前已采集 ${state.total} 条数据，可继续采集。`);
     }
   });
 }
@@ -264,7 +250,6 @@ port.onMessage.addListener((message) => {
 
   if (message.action === 'detailDone') {
     setPhase('detail', `商品完善 ${message.detailDone} 条，剩余 ${message.remaining} 条`);
-    updateStats({ stats: { detailDone: message.detailDone } });
     return;
   }
 
@@ -281,7 +266,6 @@ port.onMessage.addListener((message) => {
 
   if (message.action === 'relatedQueued') {
     setPhase('related', message.added > 0 ? '已追加 1 条新目标' : '当前商品没有新的关联命中');
-    updateStats({ queueLen: message.queueLen });
     setStatus(
       message.added > 0
         ? '已从当前商品的关联区域追加 1 条新目标进入队列。'
@@ -321,15 +305,16 @@ port.onMessage.addListener((message) => {
 // 停止路径：发 stop → UI 切回 idle，忽略 response 内容，强信号优先。
 btnMain.addEventListener('click', () => {
   if (!isRunning) {
+    const isAggressive = (cfgCollectionMode?.value || 'CONSERVATIVE') === 'AGGRESSIVE';
     const config = {
       collectionMode: cfgCollectionMode?.value || 'CONSERVATIVE',
-      taskMode: cfgTaskMode?.value || 'DISCOVERY',
+      taskMode: 'DISCOVERY',
       intervalSec: Math.max(2, parseInt(cfgInterval.value, 10) || 5),
       batchSize: Math.max(20, parseInt(cfgBatch.value, 10) || 60),
       totalLimit: Math.max(100, parseInt(cfgLimit.value, 10) || 10000),
-      autoClickV1: false,
-      autoClickLoadMore: (cfgCollectionMode?.value || 'CONSERVATIVE') === 'AGGRESSIVE',
-      showDebugPanel: Boolean(cfgDebugPanel.checked),
+      autoClickV1: isAggressive,
+      autoClickLoadMore: isAggressive,
+      removeLocalWarehouse: Boolean(cfgRemoveLocalWarehouse?.checked),
     };
 
     setRunningUI(true);
@@ -373,56 +358,6 @@ btnOneClickListing.addEventListener('click', () => {
   });
 });
 
-// 导出按钮：从 content.js 拉 collected 数据 → 组装 CSV → 通过临时 <a download> 触发浏览器下载。
-// CSV 头部写入 BOM (\uFEFF) 让 Excel 直接正确识别 UTF-8 中文；行内的双引号按 CSV 规范做 "" 转义。
-// 列顺序固定成一个列表，便于下游脚本按列名读取；index 列在 map 里按行号即时生成。
-btnExport.addEventListener('click', () => {
-  sendToContent('getData', {}, (response) => {
-    const rows = response?.data || [];
-    if (!rows.length) {
-      setStatus('暂无可导出的数据。', 'err');
-      return;
-    }
-
-    const columns = [
-      ['序号', 'index'],
-      ['商品ID', 'goodsId'],
-      ['列表商品名', 'name'],
-      ['完整商品名', 'fullTitle'],
-      ['上架时间', 'listingTime'],
-      ['商品元素HTML', 'rawHtml'],
-      ['商品元素文本', 'rawText'],
-      ['列表价格', 'price'],
-      ['详情价格', 'detailPrice'],
-      ['已售（列表）', 'sales'],
-      ['已售（详情）', 'detailSales'],
-      ['星级（列表）', 'starRating'],
-      ['星级（详情）', 'detailStars'],
-      ['评价数（列表）', 'reviewCount'],
-      ['评价数（详情）', 'detailReviews'],
-      ['详情已采集', 'detailScraped'],
-      ['采集时间', 'scrapedAt'],
-      ['详情采集时间', 'detailAt'],
-    ];
-
-    const csvRows = rows.map((row, index) => columns.map(([, key]) => {
-      const value = key === 'index' ? String(index + 1) : String(row[key] ?? '');
-      return `"${value.replace(/"/g, '""')}"`;
-    }).join(','));
-
-    const csv = `\uFEFF${columns.map(([title]) => title).join(',')}\r\n${csvRows.join('\r\n')}`;
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `temu_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
-    setStatus(`已导出 ${rows.length} 条 CSV 数据。`, 'ok');
-  });
-});
-
 // 清空按钮：二次确认 → 调 clearAll 让 content.js 清空 chrome.storage → 把 UI 复位。
 // 注意这里是"清空 state"而不是"停止 run"，只在未运行场景下使用比较安全。
 btnClear.addEventListener('click', () => {
@@ -430,44 +365,46 @@ btnClear.addEventListener('click', () => {
 
   sendToContent('clearAll', {}, () => {
     sTotal.textContent = '0';
-    sDetail.textContent = '0';
-    sRelated.textContent = '0';
-    sQueue.textContent = '0';
     setPhase('idle');
     setStatus('已清空本地采集状态。');
     setRunningUI(false);
   });
 });
 
-// 调试面板开关：运行中也允许切换 —— 把 showDebugPanel 推回 content.js 即可（content.js 里
-// 有 applyDebugPanelConfig 监听这个字段做面板显隐）。
-cfgDebugPanel.addEventListener('change', () => {
-  sendToContent('setConfig', {
-    config: {
-      showDebugPanel: Boolean(cfgDebugPanel.checked),
-    },
+cfgLogVisible?.addEventListener('change', () => {
+  const visible = Boolean(cfgLogVisible.checked);
+  chrome.storage.local.set({ [LOG_VISIBLE_KEY]: visible });
+  sendToContent('setLogVisible', { visible });
+});
+
+cfgRemoveLocalWarehouse?.addEventListener('change', () => {
+  sendToContent('applyLocalWarehouseFilter', {
+    enabled: Boolean(cfgRemoveLocalWarehouse.checked),
   }, (response) => {
     if (!response?.ok) {
-      setStatus(response?.error || '调试面板开关同步失败。', 'err');
+      setStatus(response?.error || '本地仓过滤开关同步失败。', 'err');
       return;
     }
     setStatus(
-      cfgDebugPanel.checked ? '已开启右下角调试面板。' : '已关闭右下角调试面板。',
+      cfgRemoveLocalWarehouse.checked
+        ? `已立即隐藏本地仓商品 ${response.removed || 0} 个。`
+        : '已关闭本地仓商品移除。',
       'ok'
     );
   });
 });
 
-// 采集模式 / 任务模式切换：仅在未运行时允许，运行中变更会被忽略避免破坏 FSM 状态。
+// 采集模式切换：仅在未运行时允许，运行中变更会被忽略避免破坏 FSM 状态。
 // 采集模式改 AGGRESSIVE 时自动勾上 autoClickLoadMore —— 两者在业务语义上是联动的。
-[cfgCollectionMode, cfgTaskMode].filter(Boolean).forEach((el) => {
+[cfgCollectionMode].filter(Boolean).forEach((el) => {
   el.addEventListener('change', () => {
-    if (isRunning) return;
+    const isAggressive = (cfgCollectionMode?.value || 'CONSERVATIVE') === 'AGGRESSIVE';
     sendToContent('setConfig', {
       config: {
         collectionMode: cfgCollectionMode?.value || 'CONSERVATIVE',
-        taskMode: cfgTaskMode?.value || 'DISCOVERY',
-        autoClickLoadMore: (cfgCollectionMode?.value || 'CONSERVATIVE') === 'AGGRESSIVE',
+        taskMode: 'DISCOVERY',
+        autoClickV1: isAggressive,
+        autoClickLoadMore: isAggressive,
       },
     }, (response) => {
       if (response?.ok) {

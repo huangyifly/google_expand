@@ -1,3 +1,8 @@
+import io
+from datetime import datetime, timezone
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from sqlalchemy import desc, distinct, func, or_
 from sqlalchemy.orm import Session
 
@@ -175,3 +180,98 @@ def get_dashboard_products(
         "sort_order": sort_order,
         "keyword": keyword,
     }
+
+
+def export_products_excel(
+    db: Session,
+    keyword: str = "",
+    sort_by: str = "last_seen_at",
+    sort_order: str = "desc",
+) -> bytes:
+    """查询全量（无分页）商品并生成 Excel 文件，返回二进制内容。"""
+    query = db.query(Product)
+    if keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(
+            or_(
+                Product.goods_id.ilike(pattern),
+                Product.current_title.ilike(pattern),
+                Product.current_full_title.ilike(pattern),
+            )
+        )
+
+    sort_mapping = {
+        "goods_id": Product.goods_id,
+        "title": Product.current_title,
+        "price_text": Product.current_price_text,
+        "sales_text": Product.current_sales_text,
+        "star_rating": Product.current_star_rating,
+        "review_count": Product.current_review_count,
+        "listing_time": Product.current_listing_time,
+        "raw_text": Product.current_raw_text,
+        "last_source": Product.last_source,
+        "last_seen_at": Product.last_seen_at,
+        "updated_at": Product.updated_at,
+    }
+    sort_column = sort_mapping.get(sort_by, Product.last_seen_at)
+    order_fn = desc if sort_order == "desc" else lambda col: col.asc()
+    rows = query.order_by(order_fn(sort_column)).all()
+
+    # ── 构建 Workbook ─────────────────────────────────────────────────────────
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "商品数据"
+
+    headers = [
+        "商品 ID", "标题", "完整标题", "价格", "销量", "星级", "评价数",
+        "上架时间", "最长边(cm)", "次长边(cm)", "最短边(cm)", "重量(g)",
+        "申报价", "建议零售价", "来源", "最后出现", "更新时间",
+    ]
+
+    header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True, size=11)
+
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 列宽
+    col_widths = [20, 36, 50, 12, 14, 10, 10, 20, 14, 14, 14, 12, 12, 14, 14, 20, 20]
+    for col_idx, width in enumerate(col_widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
+
+    ws.row_dimensions[1].height = 22
+    ws.freeze_panes = "A2"
+
+    for row in rows:
+        ws.append([
+            row.goods_id or "",
+            row.current_title or "",
+            row.current_full_title or "",
+            row.current_price_text or "",
+            row.current_sales_text or "",
+            row.current_star_rating or "",
+            row.current_review_count,
+            row.current_listing_time or "",
+            decimal_to_text(row.listing_length_cm),
+            decimal_to_text(row.listing_width_cm),
+            decimal_to_text(row.listing_height_cm),
+            decimal_to_text(row.listing_weight_g),
+            decimal_to_text(row.listing_declared_price),
+            decimal_to_text(row.listing_suggested_price),
+            row.last_source or "",
+            row.last_seen_at.replace(tzinfo=None) if row.last_seen_at else None,
+            row.updated_at.replace(tzinfo=None) if row.updated_at else None,
+        ])
+
+    # 日期列格式
+    date_fmt = "YYYY-MM-DD HH:MM:SS"
+    for row_idx in range(2, len(rows) + 2):
+        ws.cell(row=row_idx, column=16).number_format = date_fmt
+        ws.cell(row=row_idx, column=17).number_format = date_fmt
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

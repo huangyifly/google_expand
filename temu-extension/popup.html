@@ -3,36 +3,69 @@
 <head>
   <meta charset="UTF-8" />
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+    :root {
+      --bg: #f4f1eb;
+      --surface: #fffdf9;
+      --surface-soft: #f8f4ed;
+      --line: #e5ddd0;
+      --line-strong: #d6cab8;
+      --text: #241f19;
+      --text-muted: #6b5f52;
+      --primary: #2f4858;
+      --primary-strong: #243946;
+      --cta: #b98546;
+      --cta-strong: #9f713a;
+      --danger: #dc2626;
+      --success: #15803d;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
       width: 340px;
-      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-family: "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
       font-size: 13px;
-      color: #1f2937;
+      line-height: 1.4;
+      color: var(--text);
       background:
-        radial-gradient(circle at top right, rgba(255, 210, 167, 0.9), transparent 38%),
-        linear-gradient(180deg, #fff8f1 0%, #ffffff 34%);
+        radial-gradient(circle at 88% -10%, rgba(185, 133, 70, 0.16), transparent 34%),
+        radial-gradient(circle at -10% 108%, rgba(47, 72, 88, 0.12), transparent 46%),
+        var(--bg);
     }
 
     .topbar {
-      padding: 12px 14px;
+      padding: 14px;
       color: #fff;
-      background: linear-gradient(135deg, #f15a24, #ff7a18);
+      background: var(--primary);
       display: flex;
       align-items: center;
       justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.24);
     }
-    .topbar h3 { font-size: 15px; font-weight: 700; }
-    .topbar .ver { font-size: 11px; opacity: 0.85; }
+
+    .topbar h3 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .topbar .ver {
+      font-size: 11px;
+      font-weight: 600;
+      opacity: 0.9;
+    }
 
     .phase-bar {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 14px;
-      background: rgba(255, 255, 255, 0.84);
-      border-bottom: 1px solid #f3e2d4;
+      padding: 11px 14px;
+      background: rgba(255, 255, 255, 0.9);
+      border-bottom: 1px solid var(--line);
     }
+
     .phase-dot {
       width: 10px;
       height: 10px;
@@ -40,121 +73,150 @@
       background: #cbd5e1;
       flex-shrink: 0;
     }
-    .phase-dot.idle { background: #94a3b8; }
-    .phase-dot.listing { background: #f59e0b; animation: pulse 1s infinite; }
-    .phase-dot.filtering { background: #ec4899; animation: pulse 1s infinite; }
-    .phase-dot.navigating { background: #06b6d4; animation: pulse 1s infinite; }
-    .phase-dot.detail { background: #2563eb; animation: pulse 1s infinite; }
-    .phase-dot.related { background: #7c3aed; animation: pulse 1s infinite; }
-    .phase-dot.done { background: #16a34a; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.38} }
-    #phaseText { font-weight: 700; }
-    #phaseDesc { font-size: 11px; color: #6b7280; margin-left: auto; }
 
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      padding: 12px 14px 10px;
+    .phase-dot.idle { background: #94a3b8; }
+    .phase-dot.listing { background: #b98546; animation: pulse 1s infinite; }
+    .phase-dot.filtering { background: #5f7a8d; animation: pulse 1s infinite; }
+    .phase-dot.navigating { background: #7d8f6a; animation: pulse 1s infinite; }
+    .phase-dot.detail { background: #2f4858; animation: pulse 1s infinite; }
+    .phase-dot.related { background: #8b6f47; animation: pulse 1s infinite; }
+    .phase-dot.done { background: #16a34a; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.38} }
+
+    #phaseText { font-weight: 700; }
+
+    #phaseDesc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-left: auto;
     }
-    .stat-cell {
-      background: rgba(255, 255, 255, 0.92);
-      border: 1px solid #f3e2d4;
-      border-radius: 12px;
-      padding: 9px 6px;
-      text-align: center;
-      box-shadow: 0 8px 18px rgba(241, 90, 36, 0.06);
+
+    .phase-count {
+      margin-left: 8px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface-soft);
+      color: var(--primary);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      flex-shrink: 0;
     }
-    .stat-cell .num { font-size: 18px; font-weight: 700; }
-    .stat-cell .lbl { margin-top: 3px; font-size: 10px; color: #6b7280; }
-    .stat-cell.s1 .num { color: #f15a24; }
-    .stat-cell.s2 .num { color: #2563eb; }
-    .stat-cell.s3 .num { color: #7c3aed; }
-    .stat-cell.s4 .num { color: #16a34a; }
 
     .body { padding: 0 14px 14px; }
 
     #statusMsg {
       min-height: 16px;
-      margin-bottom: 10px;
+      margin-bottom: 9px;
       font-size: 11px;
       line-height: 1.45;
-      color: #6b7280;
+      color: var(--text-muted);
     }
-    #statusMsg.ok { color: #15803d; }
-    #statusMsg.err { color: #dc2626; }
+
+    #statusMsg.ok { color: var(--success); }
+    #statusMsg.err { color: var(--danger); }
 
     .cfg-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
+
+    .primary-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
     .cfg-item label {
       display: block;
-      margin-bottom: 4px;
+      margin-bottom: 5px;
       font-size: 11px;
-      color: #6b7280;
+      color: var(--text-muted);
     }
+
     .cfg-item input {
       width: 100%;
-      padding: 7px 8px;
-      border: 1px solid #e7d5c9;
+      padding: 8px 9px;
+      border: 1px solid var(--line-strong);
       border-radius: 9px;
-      background: rgba(255, 255, 255, 0.9);
+      background: var(--surface);
       text-align: center;
       font-size: 12px;
+      color: var(--text);
     }
+
     .cfg-item select {
       width: 100%;
-      padding: 7px 8px;
-      border: 1px solid #e7d5c9;
+      padding: 8px 9px;
+      border: 1px solid var(--line-strong);
       border-radius: 9px;
-      background: rgba(255, 255, 255, 0.9);
+      background: var(--surface);
       font-size: 12px;
-      color: #1f2937;
+      color: var(--text);
+      cursor: pointer;
     }
+
+    .cfg-item input:focus-visible,
+    .cfg-item select:focus-visible,
+    button:focus-visible {
+      outline: 2px solid rgba(185, 133, 70, 0.45);
+      outline-offset: 1px;
+    }
+
     .cfg-item input:disabled {
       background: #f8fafc;
       color: #94a3b8;
     }
+
     .cfg-item select:disabled {
       background: #f8fafc;
       color: #94a3b8;
+      cursor: not-allowed;
     }
+
     .workflow-card {
       margin-bottom: 12px;
-      padding: 10px 12px;
-      border: 1px solid #f3e2d4;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.92);
-      box-shadow: 0 8px 18px rgba(241, 90, 36, 0.06);
+      background: var(--surface);
     }
+
     .workflow-title {
       font-size: 11px;
-      color: #6b7280;
-      margin-bottom: 6px;
+      color: var(--text-muted);
+      margin-bottom: 5px;
     }
+
     .workflow-current {
       font-size: 16px;
       font-weight: 700;
-      color: #0f172a;
+      color: var(--text);
+      letter-spacing: 0.01em;
     }
+
     .workflow-meta {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       margin-top: 8px;
       font-size: 11px;
-      color: #6b7280;
+      color: var(--text-muted);
     }
+
     .workflow-pill {
       padding: 4px 8px;
       border-radius: 999px;
-      background: rgba(241, 90, 36, 0.12);
-      color: #f15a24;
+      background: rgba(47, 72, 88, 0.12);
+      color: var(--primary);
       font-weight: 700;
     }
+
     .cfg-switch {
       grid-column: 1 / -1;
       display: flex;
@@ -162,29 +224,77 @@
       justify-content: space-between;
       gap: 12px;
       padding: 10px 12px;
-      border: 1px solid #f3e2d4;
+      border: 1px solid var(--line);
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.92);
+      background: var(--surface-soft);
     }
+
     .cfg-switch .meta {
       min-width: 0;
     }
+
     .cfg-switch .title {
       font-size: 12px;
       font-weight: 700;
-      color: #334155;
+      color: var(--text);
     }
+
     .cfg-switch .desc {
       margin-top: 3px;
       font-size: 10px;
       line-height: 1.4;
-      color: #6b7280;
+      color: var(--text-muted);
     }
+
     .cfg-switch input[type="checkbox"] {
       width: 18px;
       height: 18px;
       flex-shrink: 0;
-      accent-color: #f15a24;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    .more-wrap {
+      margin: 8px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.68);
+      overflow: hidden;
+    }
+
+    .more-summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 11px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+      background: var(--surface-soft);
+      border-bottom: 1px solid transparent;
+    }
+
+    .more-summary::-webkit-details-marker { display: none; }
+
+    .more-summary::after {
+      content: "▾";
+      color: var(--text-muted);
+      font-size: 12px;
+      transition: transform 0.16s ease;
+    }
+
+    .more-wrap[open] .more-summary {
+      border-bottom-color: var(--line);
+    }
+
+    .more-wrap[open] .more-summary::after {
+      transform: rotate(180deg);
+    }
+
+    .more-content {
+      padding: 10px;
     }
 
     button {
@@ -196,22 +306,45 @@
       cursor: pointer;
       font-size: 13px;
       font-weight: 700;
-      transition: opacity 0.15s ease;
+      transition: background-color 0.18s ease, opacity 0.18s ease;
     }
-    button:hover:not(:disabled) { opacity: 0.88; }
+
+    button:hover:not(:disabled) { opacity: 0.92; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
-    .btn-main { color: #fff; background: linear-gradient(135deg, #f15a24, #ff7a18); }
-    .btn-main.running { background: linear-gradient(135deg, #475569, #64748b); }
-    .btn-export { color: #fff; background: linear-gradient(135deg, #16a34a, #22c55e); }
-    .btn-listing { color: #fff; background: linear-gradient(135deg, #2563eb, #06b6d4); }
-    .btn-clear { color: #475569; background: #eef2f7; }
+
+    .btn-main { color: #fff; background: var(--cta); }
+    .btn-main:hover:not(:disabled) { background: var(--cta-strong); }
+    .btn-main.running { background: #64748b; }
+    .btn-listing { color: #fff; background: var(--primary); }
+    .btn-listing:hover:not(:disabled) { background: var(--primary-strong); }
+    .btn-clear {
+      color: var(--text);
+      background: #f1ebe1;
+      border: 1px solid var(--line);
+      margin-bottom: 0;
+    }
+    .btn-clear:hover:not(:disabled) { background: #e6dccd; }
 
     .hint {
       margin-top: 8px;
       font-size: 10px;
       line-height: 1.45;
-      color: #94a3b8;
+      color: var(--text-muted);
       text-align: center;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .phase-dot.listing,
+      .phase-dot.filtering,
+      .phase-dot.navigating,
+      .phase-dot.detail,
+      .phase-dot.related {
+        animation: none;
+      }
+
+      button {
+        transition: none;
+      }
     }
   </style>
 </head>
@@ -225,27 +358,13 @@
     <div class="phase-dot idle" id="phaseDot"></div>
     <span id="phaseText">空闲</span>
     <span id="phaseDesc">尚未开始</span>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-cell s1"><div class="num" id="sTotal">0</div><div class="lbl">已采集</div></div>
-    <div class="stat-cell s2"><div class="num" id="sDetail">0</div><div class="lbl">商品完善</div></div>
-    <div class="stat-cell s3"><div class="num" id="sRelated">0</div><div class="lbl">新目标追加</div></div>
-    <div class="stat-cell s4"><div class="num" id="sQueue">0</div><div class="lbl">待处理</div></div>
+    <span class="phase-count">已采集 <span id="sTotal">0</span></span>
   </div>
 
   <div class="body">
     <div id="statusMsg">打开 Temu 商品页面后点击开始采集</div>
-    <div class="workflow-card">
-      <div class="workflow-title">当前工作流状态</div>
-      <div class="workflow-current" id="workflowCurrent">LIST_DISCOVERY</div>
-      <div class="workflow-meta">
-        <span class="workflow-pill" id="workflowModePill">保守辅助模式</span>
-        <span class="workflow-pill" id="taskModePill">Discovery Mode</span>
-      </div>
-    </div>
 
-    <div class="cfg-grid">
+    <div class="primary-grid">
       <div class="cfg-item">
         <label>采集模式</label>
         <select id="cfgCollectionMode">
@@ -253,46 +372,45 @@
           <option value="AGGRESSIVE">激进自动模式</option>
         </select>
       </div>
-      <div class="cfg-item">
-        <label>任务模式</label>
-        <select id="cfgTaskMode">
-          <option value="DISCOVERY">Discovery Mode</option>
-          <option value="HARVEST">Harvest Mode</option>
-          <option value="GRAPH">Graph Mode</option>
-        </select>
-      </div>
-      <div class="cfg-item">
-        <label>加载间隔（秒）</label>
-        <input type="number" id="cfgInterval" value="5" min="2" max="60" />
-      </div>
-      <div class="cfg-item">
-        <label>初始批次（条）</label>
-        <input type="number" id="cfgBatch" value="60" min="20" max="500" />
-      </div>
-      <div class="cfg-item" style="grid-column: 1 / -1;">
-        <label>总上限（条）</label>
-        <input type="number" id="cfgLimit" value="10000" min="100" />
-      </div>
-      <div class="cfg-switch">
-        <div class="meta">
-          <div class="title">自动点击“查看更多商品”</div>
-          <div class="desc">作用于当前商品流页面。开启后，命中“查看更多商品”按钮时会自动点击并等待页面加载。</div>
-        </div>
-        <input type="checkbox" id="cfgAutoLoadMore" />
-      </div>
-      <div class="cfg-switch">
-        <div class="meta">
-          <div class="title">显示右下角调试面板</div>
-          <div class="desc">可在运行中随时开关页面右下角的 Temu Scraper Debug 面板。</div>
-        </div>
-        <input type="checkbox" id="cfgDebugPanel" />
-      </div>
     </div>
 
     <button id="btnMain" class="btn-main">开始采集</button>
     <button id="btnOneClickListing" class="btn-listing">执行一键上架</button>
-    <button id="btnExport" class="btn-export">导出 CSV</button>
-    <button id="btnClear" class="btn-clear">清空数据</button>
+
+    <details class="more-wrap">
+      <summary class="more-summary">更多设置</summary>
+      <div class="more-content">
+        <div class="cfg-grid">
+          <div class="cfg-item">
+            <label>加载间隔（秒）</label>
+            <input type="number" id="cfgInterval" value="2" min="2" max="60" />
+          </div>
+          <div class="cfg-item">
+            <label>初始批次（条）</label>
+            <input type="number" id="cfgBatch" value="50" min="20" max="3000" />
+          </div>
+          <div class="cfg-item" style="grid-column: 1 / -1;">
+            <label>总上限（条）</label>
+            <input type="number" id="cfgLimit" value="10000" min="100" />
+          </div>
+          <div class=”cfg-switch”>
+            <div class=”meta”>
+              <div class=”title”>去除本地仓商品</div>
+              <div class=”desc”>采集前自动删除页面中带”本地仓”标识的商品卡片。</div>
+            </div>
+            <input type=”checkbox” id=”cfgRemoveLocalWarehouse” checked />
+          </div>
+          <div class=”cfg-switch”>
+            <div class=”meta”>
+              <div class=”title”>显示日志面板</div>
+              <div class=”desc”>控制右下角操作时间线面板的显示与隐藏。</div>
+            </div>
+            <input type=”checkbox” id=”cfgLogVisible” checked />
+          </div>
+        </div>
+        <button id="btnClear" class="btn-clear">清空数据</button>
+      </div>
+    </details>
 
     <div class="hint">采集与上架是两条独立链路；打开商品详情页后可手动执行一键上架。</div>
   </div>

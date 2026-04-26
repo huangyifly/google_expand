@@ -5,189 +5,315 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Temu 数据后台</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap');
+
     :root {
-      --bg: #f6f8fb;
-      --card: #ffffff;
-      --line: #e7ecf3;
-      --text: #18212f;
-      --muted: #607086;
-      --accent: #f15a24;
-      --accent-soft: rgba(241, 90, 36, 0.12);
-      --shadow: 0 14px 36px rgba(17, 24, 39, 0.08);
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-soft: #f1f5f9;
+      --line: #dbe5f1;
+      --line-strong: #c3d4ea;
+      --text: #1e3a8a;
+      --text-body: #1f2a44;
+      --muted: #5b6b8f;
+      --primary: #1e40af;
+      --primary-strong: #1e3a8a;
+      --accent: #f59e0b;
+      --accent-soft: rgba(245, 158, 11, 0.14);
+      --ok: #15803d;
+      --warn: #b45309;
+      --err: #b91c1c;
+      --shadow: 0 12px 28px rgba(30, 58, 138, 0.08);
     }
+
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-      color: var(--text);
+      font-family: "Fira Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text-body);
       background:
-        radial-gradient(circle at top right, rgba(241, 90, 36, 0.08), transparent 32%),
-        linear-gradient(180deg, #fcfdff 0%, var(--bg) 48%);
+        radial-gradient(circle at 92% -8%, rgba(59, 130, 246, 0.12), transparent 34%),
+        radial-gradient(circle at -8% 112%, rgba(245, 158, 11, 0.10), transparent 36%),
+        var(--bg);
     }
+
+    a { color: var(--primary); }
+
     .page {
-      max-width: 1320px;
+      max-width: 1360px;
       margin: 0 auto;
-      padding: 28px 20px 40px;
+      padding: 28px 20px 42px;
     }
+
     .hero {
       display: flex;
       justify-content: space-between;
-      gap: 20px;
       align-items: flex-end;
-      margin-bottom: 22px;
+      gap: 16px;
+      margin-bottom: 18px;
     }
+
     .hero h1 {
       margin: 0;
       font-size: 30px;
+      letter-spacing: -0.02em;
+      color: var(--text);
     }
+
     .hero p {
       margin: 10px 0 0;
+      max-width: 760px;
       color: var(--muted);
       font-size: 14px;
-      max-width: 700px;
       line-height: 1.6;
     }
+
+    .hero-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill-link,
     .badge {
-      background: var(--accent-soft);
-      color: var(--accent);
-      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
       padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line-strong);
+      background: var(--surface);
+      color: var(--primary);
+      font-size: 12px;
       font-weight: 700;
+      text-decoration: none;
       white-space: nowrap;
     }
-    .grid {
-      display: grid;
-      gap: 16px;
+
+    .badge {
+      background: var(--accent-soft);
+      color: var(--warn);
+      border-color: rgba(245, 158, 11, 0.26);
     }
+
+    .grid { display: grid; gap: 14px; }
+
     .stats {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
+
     .card {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      box-shadow: var(--shadow);
-    }
-    .stat-card {
-      padding: 18px;
-    }
-    .stat-label {
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 10px;
-    }
-    .stat-value {
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-    .panels {
-      grid-template-columns: 1.2fr 0.8fr;
-      margin-bottom: 20px;
-    }
-    .panel {
-      padding: 18px 18px 16px;
-      min-height: 220px;
-    }
-    .panel h2 {
-      margin: 0 0 14px;
-      font-size: 18px;
-    }
-    .table-wrap {
-      overflow: auto;
       border: 1px solid var(--line);
       border-radius: 14px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
     }
+
+    .stat-card { padding: 14px; }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--primary-strong);
+      letter-spacing: -0.02em;
+    }
+
+    .panels {
+      grid-template-columns: 1.2fr 0.8fr;
+      margin-bottom: 16px;
+    }
+
+    .two-col {
+      grid-template-columns: 1fr 1fr;
+      margin-bottom: 16px;
+    }
+
+    .panel {
+      padding: 14px;
+      min-height: 220px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .panel h2 {
+      margin: 0;
+      font-size: 16px;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .panel-note {
+      margin: 8px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      overflow: auto;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
     }
+
     th, td {
-      padding: 12px 12px;
-      border-bottom: 1px solid var(--line);
+      padding: 10px 11px;
       text-align: left;
       vertical-align: top;
+      border-bottom: 1px solid var(--line);
     }
+
     th {
-      background: #fafbfd;
-      color: var(--muted);
-      font-size: 12px;
       position: sticky;
       top: 0;
       z-index: 1;
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
     }
-    .bars {
-      display: grid;
-      gap: 10px;
+
+    tbody tr:hover { background: #f9fbff; }
+
+    .mono {
+      font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+      word-break: break-all;
+      font-size: 12px;
     }
-    .bar-row {
-      display: grid;
-      gap: 6px;
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid transparent;
     }
+
+    .status-pill.ok {
+      color: var(--ok);
+      background: rgba(21, 128, 61, 0.10);
+      border-color: rgba(21, 128, 61, 0.22);
+    }
+
+    .status-pill.running {
+      color: var(--primary);
+      background: rgba(30, 64, 175, 0.10);
+      border-color: rgba(30, 64, 175, 0.22);
+    }
+
+    .status-pill.warn {
+      color: var(--warn);
+      background: rgba(180, 83, 9, 0.10);
+      border-color: rgba(180, 83, 9, 0.22);
+    }
+
+    .status-pill.err {
+      color: var(--err);
+      background: rgba(185, 28, 28, 0.10);
+      border-color: rgba(185, 28, 28, 0.22);
+    }
+
+    .bars { display: grid; gap: 10px; }
+
+    .bar-row { display: grid; gap: 6px; }
+
     .bar-meta {
       display: flex;
       justify-content: space-between;
       gap: 10px;
-      font-size: 13px;
+      font-size: 12px;
+      color: var(--muted);
     }
+
+    .bar-meta strong {
+      font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text);
+      font-weight: 600;
+    }
+
     .bar-track {
-      background: #f0f4f9;
+      height: 9px;
       border-radius: 999px;
-      height: 10px;
       overflow: hidden;
+      background: #e8eef8;
     }
+
     .bar-fill {
       height: 100%;
-      background: linear-gradient(90deg, #ff7a18, #f15a24);
       border-radius: 999px;
+      background: linear-gradient(90deg, #1e40af, #3b82f6);
     }
-    .search-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
-    input, button {
-      font: inherit;
-    }
-    input {
-      flex: 1;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 10px 12px;
-      background: #fff;
-    }
-    button {
-      border: none;
-      border-radius: 12px;
-      padding: 10px 14px;
-      background: linear-gradient(135deg, #f15a24, #ff7a18);
-      color: #fff;
-      font-weight: 700;
-      cursor: pointer;
-    }
+
     .muted {
       color: var(--muted);
       font-size: 12px;
     }
-    .mono {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      word-break: break-all;
+
+    .error-view {
+      padding: 24px;
+      font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #b91c1c;
+      white-space: pre-wrap;
     }
-    .two-col {
-      grid-template-columns: 1fr 1fr;
+
+    .pill-link:focus-visible,
+    .badge:focus-visible,
+    a:focus-visible {
+      outline: 2px solid rgba(245, 158, 11, 0.45);
+      outline-offset: 2px;
     }
-    @media (max-width: 980px) {
+
+    @media (max-width: 1100px) {
       .stats,
       .panels,
       .two-col {
         grid-template-columns: 1fr;
       }
+    }
+
+    @media (max-width: 760px) {
       .hero {
         flex-direction: column;
         align-items: flex-start;
       }
+
+      .hero-actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .page { padding: 20px 12px 28px; }
+      .hero h1 { font-size: 24px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto; }
     }
   </style>
 </head>
@@ -196,10 +322,10 @@
     <div class="hero">
       <div>
         <h1>Temu 数据后台</h1>
-        <p>查看采集任务、商品快照、联想关系和来源分布。这个页面走后端接口取数，后续可以继续扩展图表、导出和更复杂的筛选。</p>
+        <p>查看采集任务、商品快照、联想关系和来源分布。当前版本聚焦高频监控指标，支持快速定位运行状态和数据质量。</p>
       </div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-        <a class="badge" href="/admin/products" style="text-decoration:none;">商品查询页</a>
+      <div class="hero-actions">
+        <a class="pill-link" href="/admin/products">商品查询页</a>
         <div class="badge" id="latestSnapshotBadge">最近快照：加载中</div>
       </div>
     </div>
@@ -213,7 +339,9 @@
 
     <div class="grid panels">
       <div class="card panel">
-        <h2>最近采集任务</h2>
+        <div class="panel-head">
+          <h2>最近采集任务</h2>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -230,14 +358,18 @@
         </div>
       </div>
       <div class="card panel">
-        <h2>来源分布</h2>
+        <div class="panel-head">
+          <h2>来源分布</h2>
+        </div>
         <div class="bars" id="sourcesBars"></div>
       </div>
     </div>
 
-    <div class="grid two-col" style="margin-bottom: 20px;">
+    <div class="grid two-col">
       <div class="card panel">
-        <h2>联想关系 Top</h2>
+        <div class="panel-head">
+          <h2>联想关系 Top</h2>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -253,7 +385,9 @@
         </div>
       </div>
       <div class="card panel">
-        <h2>扩展统计</h2>
+        <div class="panel-head">
+          <h2>扩展统计</h2>
+        </div>
         <div class="table-wrap">
           <table>
             <tbody>
@@ -263,7 +397,7 @@
             </tbody>
           </table>
         </div>
-        <p class="muted" style="margin-top: 12px;">这块先放常用聚合指标，后面你想看价格历史、销量区间、某商品联想链路都可以继续扩。</p>
+        <p class="panel-note">后续可继续扩展价格历史、销量区间和商品关联链路视图。</p>
       </div>
     </div>
 
@@ -299,6 +433,15 @@
       return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
     }
 
+    function statusClass(status) {
+      const value = String(status || "").toUpperCase();
+      if (value.includes("DONE") || value.includes("SUCCESS") || value.includes("COMPLETED")) return "ok";
+      if (value.includes("RUN") || value.includes("START")) return "running";
+      if (value.includes("PAUSE") || value.includes("WAIT")) return "warn";
+      if (value.includes("FAIL") || value.includes("ERR") || value.includes("STOP")) return "err";
+      return "running";
+    }
+
     function renderOverview(data) {
       document.getElementById("statProducts").textContent = fmt.format(data.total_products || 0);
       document.getElementById("statSnapshots").textContent = fmt.format(data.total_snapshots || 0);
@@ -312,15 +455,18 @@
 
     function renderRuns(items) {
       const body = document.getElementById("runsBody");
-      body.innerHTML = items.map(item => `
-        <tr>
-          <td class="mono">${safe(item.run_uuid)}</td>
-          <td>${safe(item.status)}</td>
-          <td>${formatDateTime(item.started_at)}</td>
-          <td>${formatDateTime(item.ended_at)}</td>
-          <td>${fmt.format(item.total_collected || 0)}</td>
-        </tr>
-      `).join("");
+      body.innerHTML = items.map(item => {
+        const status = safe(item.status);
+        return `
+          <tr>
+            <td class="mono">${safe(item.run_uuid)}</td>
+            <td><span class="status-pill ${statusClass(status)}">${status}</span></td>
+            <td>${formatDateTime(item.started_at)}</td>
+            <td>${formatDateTime(item.ended_at)}</td>
+            <td>${fmt.format(item.total_collected || 0)}</td>
+          </tr>
+        `;
+      }).join("");
     }
 
     function renderSources(items) {
@@ -367,7 +513,7 @@
     }
 
     boot().catch((error) => {
-      document.body.innerHTML = `<pre style="padding:24px;font-family:monospace;">后台页面加载失败\n${error.message}</pre>`;
+      document.body.innerHTML = `<pre class="error-view">后台页面加载失败\n${error.message}</pre>`;
     });
   </script>
 </body>

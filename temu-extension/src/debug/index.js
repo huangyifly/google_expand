@@ -102,12 +102,12 @@ export function ensureDebugPanel() {
         max-height: 45vh;
         overflow: auto;
         z-index: 2147483647;
-        background: rgba(17, 17, 17, 0.92);
-        color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 253, 249, 0.97);
+        color: #241f19;
+        border: 1px solid #d6cab8;
         border-radius: 10px;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
-        font: 12px/1.45 Menlo, Monaco, Consolas, monospace;
+        box-shadow: 0 12px 28px rgba(36, 57, 70, 0.16);
+        font: 12px/1.45 "Plus Jakarta Sans", Menlo, Monaco, Consolas, monospace;
         padding: 10px 10px 8px;
         white-space: pre-wrap;
         word-break: break-word;
@@ -118,12 +118,12 @@ export function ensureDebugPanel() {
         scrollbar-width: thin;
       }
       #${DEBUG_PANEL_ID} .temu-scraper-debug-title {
-        color: #ffb36b;
+        color: #2f4858;
         font-weight: 700;
         margin-bottom: 6px;
         position: sticky;
         top: 0;
-        background: rgba(17, 17, 17, 0.98);
+        background: rgba(255, 253, 249, 0.98);
         padding-bottom: 6px;
       }
       #${DEBUG_PANEL_ID} .temu-scraper-debug-line {
@@ -141,8 +141,8 @@ export function ensureDebugPanel() {
         align-items: center;
         padding: 4px 8px;
         border-radius: 999px;
-        background: rgba(255, 179, 107, 0.14);
-        color: #ffd7b0;
+        background: rgba(47, 72, 88, 0.10);
+        color: #2f4858;
         font-weight: 700;
       }
       #${DEBUG_PANEL_ID} .temu-scraper-debug-actions {
@@ -152,16 +152,16 @@ export function ensureDebugPanel() {
         margin-bottom: 8px;
       }
       #${DEBUG_PANEL_ID} .temu-scraper-debug-btn {
-        border: 1px solid rgba(255,255,255,0.18);
+        border: 1px solid #d6cab8;
         border-radius: 8px;
-        background: rgba(255,255,255,0.08);
-        color: #fff;
+        background: #f8f4ed;
+        color: #241f19;
         padding: 6px 8px;
         cursor: pointer;
         font: inherit;
       }
       #${DEBUG_PANEL_ID} .temu-scraper-debug-btn-primary {
-        background: linear-gradient(135deg, #f15a24, #ff7a18);
+        background: #b98546;
         border-color: transparent;
         color: #fff;
         font-weight: 700;
@@ -170,11 +170,11 @@ export function ensureDebugPanel() {
         width: 8px;
       }
       #${DEBUG_PANEL_ID}::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.24);
+        background: rgba(47, 72, 88, 0.26);
         border-radius: 999px;
       }
       #${DEBUG_PANEL_ID}::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.06);
+        background: rgba(47, 72, 88, 0.08);
         border-radius: 999px;
       }
     `;

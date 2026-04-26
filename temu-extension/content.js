@@ -14,7 +14,7 @@
  *   src/dom/         - DOM 操作 (查找、高亮、点击)
  *   src/extraction/  - 数据提取 (商品字段解析)
  *   src/workflow/    - 工作流控制 (FSM状态机)
- *   src/debug/       - 调试面板
+ *   src/debug/       - 控制台调试日志
  *   src/upload/      - 批量上传
  *
  * 【主流程】
@@ -51,7 +51,13 @@ const ONE_CLICK_LISTING_SELECTORS = [
 const ONE_CLICK_LISTING_DELAY_MS = 5000;
 const HUMAN_SCROLL_MAX_STEPS = 12;
 const UPLOAD_BATCH_SIZE = 25;
-const LOAD_MORE_WATCH_TIMEOUT = 3000;
+// 多样性降权：滑动窗口大小（记录最近 N 条已处理商品名）
+const RECENT_NAMES_WINDOW = 8;
+// 多样性降权：候选名称与窗口的 2-gram 重叠数 >= 此值时视为"高重叠"，降级排序
+const DIVERSITY_OVERLAP_THRESHOLD = 0.3; // 比例阈值：候选名称 ≥30% 的汉字 bigram 与近期窗口重叠则降权
+const LOAD_MORE_WATCH_TIMEOUT = 10000;
+const DOM_PRUNE_CARD_THRESHOLD = 50;
+const DOM_PRUNE_KEEP_COUNT = 20;
 const FSM_STATES = {
     LIST_DISCOVERY: 'LIST_DISCOVERY',
     TARGET_SELECTED: 'TARGET_SELECTED',
@@ -83,10 +89,155 @@ const TASK_MODES = {
     HARVEST: 'HARVEST',
     GRAPH: 'GRAPH',
 };
-const EXCLUDED_TITLE_KEYWORDS = [
+/**
+ * 兜底排除词列表（后端不可达时使用）。
+ * 运行时真正使用的是 `excludedTitleKeywords`，它会在启动时被后端数据覆盖。
+ * 后端接口：GET /api/config/exclusion-keywords → { keywords: string[] }
+ */
+const EXCLUDED_TITLE_KEYWORDS_FALLBACK = [
     '玩具',
-    '电器',
+
+    // ── 大家电 ────────────────────────────────────────────
+    '洗衣机', '冰箱', '冰柜', '空调', '电视机', '投影仪',
+    '微波炉', '烤箱', '热水器', '电热水器', '洗碗机', '干衣机',
+
+    // ── 厨房小电 ──────────────────────────────────────────
+    '电饭锅', '电压力锅', '电磁炉', '电陶炉', '料理机',
+    '榨汁机', '破壁机', '豆浆机', '咖啡机', '胶囊咖啡机',
+    '电热水壶', '养生壶', '烤面包机', '多士炉', '空气炸锅',
+    '电炒锅', '电烤盘', '蒸汽锅', '三明治机', '华夫饼机',
+    '绞肉机', '和面机',
+
+    // ── 清洁家电 ──────────────────────────────────────────
+    '吸尘器', '扫地机器人', '扫地机', '拖地机', '洗地机',
+    '蒸汽拖把', '除螨仪',
+
+    // ── 空气/温控 ──────────────────────────────────────────
+    '空气净化器', '加湿器', '除湿机', '电风扇', '风扇',
+    '暖风机', '取暖器', '电暖器', '油汀', '电热毯', '电热丝毯',
+
+    // ── 照明 ──────────────────────────────────────────────
+    '台灯', '落地灯', '床头灯', '夜灯', '感应灯', 'LED灯带',
+    '射灯', '筒灯', '吸顶灯',
+
+    // ── 手机/平板/电脑 ────────────────────────────────────
+    '手机', '平板电脑', '笔记本电脑', '台式机', '一体机',
+    '电脑主机', '显示器', '键盘', '鼠标',
+
+    // ── 耳机/音响 ─────────────────────────────────────────
+    '耳机', '蓝牙耳机', '有线耳机', '降噪耳机',
+    '音箱', '蓝牙音箱', '音响', '回音壁',
+
+    // ── 充电/配件 ─────────────────────────────────────────
+    '充电器', '充电宝', '数据线', '无线充',
+    '移动电源', '快充头', '充电头',
+
+    // ── 智能穿戴 ──────────────────────────────────────────
+    '智能手表', '智能手环', '运动手表',
+
+    // ── 美容仪器 ──────────────────────────────────────────
+    '电动牙刷', '冲牙器', '洁面仪', '美容仪', '脱毛仪',
+    '卷发棒', '直发器', '直发夹', '吹风机', '电吹风', '梳子',
+
+    // ── 摄影/安防 ─────────────────────────────────────────
+    '摄像头', '行车记录仪', '运动相机', '运动摄像机',
+    '监控', '门铃摄像头',
+
+    // ── 游戏/娱乐 ─────────────────────────────────────────
+    '游戏机', '游戏手柄', '手柄',
+
+    // ── 办公设备 ──────────────────────────────────────────
+    '打印机', '扫描仪', '碎纸机', '投影屏',
+
+    // ── 食品接触材料（餐具/厨具/容器）───────────────────────
+    // 碗碟盘
+    '碗', '饭碗', '汤碗', '沙拉碗', '盘子', '碟子', '餐盘', '碟',
+    // 筷勺叉刀
+    '筷子', '勺子', '汤匙', '餐叉', '叉子', '餐勺', '餐刀', '刀叉', '餐具',
+    // 杯壶
+    '杯子', '水杯', '茶杯', '马克杯', '咖啡杯', '玻璃杯',
+    '保温杯', '焖烧杯', '随行杯', '保温壶', '水壶',
+    '茶壶', '茶具', '公道杯', '茶盘',
+    // 吸管
+    '吸管', '金属吸管', '硅胶吸管',
+    // 饭盒/保鲜盒
+    '饭盒', '便当盒', '餐盒', '保鲜盒', '食品盒',
+    '密封罐', '储物罐', '密封袋', '保鲜袋', '食品袋', '真空袋',
+    '保鲜膜',
+    // 锅
+    '炒锅', '汤锅', '平底锅', '不粘锅', '铸铁锅', '砂锅', '蒸锅',
+    '奶锅', '煎锅', '烤盘', '烤架',
+    // 刀板
+    '菜刀', '水果刀', '砧板', '切菜板', '案板',
+    // 备餐小工具
+    '削皮器', '刨丝器', '擦丝器', '漏勺', '滤网', '沥水篮',
+    '量杯', '量勺', '开瓶器', '开罐器',
+    '调味瓶', '调料盒', '油壶', '醋壶',
+    // 冰格/烘焙
+    '冰格', '制冰盒', '烘焙模具', '蛋糕模', '烘焙纸', '锡纸',
+
+
+
+    // ── 服装（上衣）────────────────────────────────────────
+    'T恤', '衬衫', '衬衣', '卫衣', '毛衣', '针织衫', '毛衫',
+    '吊带衫', '吊带背心', '背心', '马甲',
+    '外套', '夹克', '风衣', '大衣', '棉衣', '棉服', '羽绒服',
+    '皮衣', '皮草', '西装', '西服', '礼服', '正装',
+    '内衣', '睡衣', '打底衫', '秋衣',
+
+    // ── 裤子 ─────────────────────────────────────────────
+    '牛仔裤', '休闲裤', '运动裤', '西裤', '短裤', '长裤',
+    '九分裤', '七分裤', '阔腿裤', '小脚裤', '打底裤',
+    '瑜伽裤', '睡裤', '内裤', '秋裤', '裤子',
+
+    // ── 裙子 ─────────────────────────────────────────────
+    '连衣裙', '半身裙', '短裙', '长裙', '百褶裙',
+    '蓬蓬裙', 'A字裙', '包臀裙', '裙子',
+
+    // ── 鞋履 ─────────────────────────────────────────────
+    '运动鞋', '板鞋', '凉鞋', '高跟鞋', '平底鞋', '拖鞋',
+    '马丁靴', '雪地靴', '帆布鞋', '皮鞋', '短靴', '长靴',
+    '老爹鞋', '洞洞鞋',
+
+    // ── 配件（帽/袜/手套/围巾）──────────────────────────────
+    '遮阳帽', '棒球帽', '针织帽', '渔夫帽', '毛线帽',
+    '围巾', '口罩', '手套', '袜子', '丝袜', '连裤袜',
+
+    // ── 内衣/泳衣/运动服 ──────────────────────────────────
+    '胸罩', '文胸', '塑身衣',
+    '泳衣', '泳裤', '泳装',
+    '瑜伽服', '健身服', '运动服',
+
+    // ── 特定品类 ──────────────────────────────────────────
+    '汉服', '旗袍', '唐装',
+    '孕妇装', '哺乳服',
+    '童装', '婴儿服', '儿童服',
+    '男装', '女装',
 ];
+
+/**
+ * 运行时排除词列表，初始值为本地兜底，启动时由 `loadExclusionKeywords()` 从后端覆盖。
+ * 使用 let 而非 const，方便热更新（后续可支持运行中刷新）。
+ */
+let excludedTitleKeywords = EXCLUDED_TITLE_KEYWORDS_FALLBACK;
+
+/**
+ * 从后端拉取最新排除词列表，成功则覆盖 `excludedTitleKeywords`，失败则保留本地兜底。
+ * 在 content script 启动时调用一次；后续如需热刷新可再次调用。
+ */
+async function loadExclusionKeywords() {
+    const resp = await callRuntime('fetchExclusionKeywords');
+    if (resp?.ok && Array.isArray(resp.keywords) && resp.keywords.length > 0) {
+        excludedTitleKeywords = resp.keywords;
+        logAction('info', `[exclusionKeywords] 从后端加载 ${resp.keywords.length} 条排除词`, {
+            count: resp.keywords.length,
+        });
+    } else {
+        logAction('warn', `[exclusionKeywords] 后端加载失败，使用本地兜底 ${EXCLUDED_TITLE_KEYWORDS_FALLBACK.length} 条`, {
+            error: resp?.error,
+        });
+    }
+}
 
 /**
  * 生成一份"空白状态"快照，用于初次启动或 clearAll 时重置 chrome.storage.local。
@@ -95,7 +246,7 @@ const EXCLUDED_TITLE_KEYWORDS = [
  * @returns {{
  *   running: boolean,
  *   phase: string,
- *   config: {intervalSec: number, batchSize: number, totalLimit: number, autoClickV1: boolean, autoClickLoadMore: boolean, showDebugPanel: boolean, collectionMode: string, taskMode: string},
+ *   config: {intervalSec: number, batchSize: number, totalLimit: number, autoClickV1: boolean, autoClickLoadMore: boolean, removeLocalWarehouse: boolean, collectionMode: string, taskMode: string},
  *   workflow: {current: string, previous: string, updatedAt: string, reason: string, manualInterventionRequired: boolean},
  *   runUuid: string,
  *   listingUrl: string,
@@ -107,6 +258,8 @@ const EXCLUDED_TITLE_KEYWORDS = [
  *   targetQueue: Array<object>,
  *   batchStartCount: number,
  *   batchAnchorUrl: string,
+ *   totalCollected: number,
+ *   seenGoodsIds: Array<string>,
  *   stats: {listingTotal: number, detailDone: number, cycles: number, relatedAdded: number}
  * }}
  */
@@ -115,12 +268,12 @@ function defaultState() {
         running: false,
         phase: 'idle',
         config: {
-            intervalSec: 5,
-            batchSize: 60,
+            intervalSec: 10,
+            batchSize: 100,
             totalLimit: 10000,
             autoClickV1: false,
             autoClickLoadMore: false,
-            showDebugPanel: false,
+            removeLocalWarehouse: true,
             collectionMode: COLLECTION_MODES.CONSERVATIVE,
             taskMode: TASK_MODES.DISCOVERY,
         },
@@ -147,6 +300,12 @@ function defaultState() {
         // `location.href` 与此字段：不同则视为"刚落地新页面"（listing / detail 都适用），
         // 把 batchStartCount 重置到当前 collected.length，让每个 URL 拥有自己的 batch 计数。
         batchAnchorUrl: '',
+        // 上传成功后 collected 会被清空；totalCollected 累计"历史上传总数"，
+        // seenGoodsIds 保留所有已见 goodsId 用于去重。
+        totalCollected: 0,
+        seenGoodsIds: [],
+        // 最近处理过的商品名称，用于多样性降权（滑动窗口，最多保留 RECENT_NAMES_WINDOW 条）
+        recentProcessedNames: [],
         stats: {
             listingTotal: 0,
             detailDone: 0,
@@ -159,6 +318,16 @@ function defaultState() {
 let lastKnownState = defaultState();
 
 /**
+ * 返回"总采集量"：历史已上传清空的计数 + 当前 collected 里还未上传的条目。
+ * 替代所有直接使用 state.collected.length 作计数的地方。
+ * @param {ReturnType<typeof defaultState>} state
+ * @returns {number}
+ */
+function getTotalCollected(state) {
+    return (state.totalCollected || 0) + (state.collected?.length || 0);
+}
+
+/**
  * 从 chrome.storage.local 读取完整 state 快照，并更新内存缓存 `lastKnownState`。
  * 这是所有读取路径的唯一入口；不要直接操作 chrome.storage.local.get。
  *
@@ -167,10 +336,31 @@ let lastKnownState = defaultState();
 async function getState() {
     return new Promise((resolve) => {
         chrome.storage.local.get([STORE_KEY], (result) => {
-            lastKnownState = result[STORE_KEY] || defaultState();
+            lastKnownState = compactStateForStorage(result[STORE_KEY] || defaultState());
             resolve(lastKnownState);
         });
     });
+}
+
+/**
+ * 写入 chrome.storage.local 前压缩流程状态。后端已经接收完整商品数据，
+ * 插件本地只保留下一跳筛选和页面点击所需字段。
+ *
+ * @param {ReturnType<typeof defaultState>} state
+ * @returns {ReturnType<typeof defaultState>}
+ */
+function compactStateForStorage(state) {
+    if (!Array.isArray(state?.collected)) return state;
+    const config = {...(state.config || {})};
+    delete config[['show', 'Debug', 'Panel'].join('')];
+    config.taskMode = TASK_MODES.DISCOVERY;
+    return {
+        ...state,
+        config,
+        collected: state.collected
+            .filter((item) => item?.goodsId)
+            .map((item) => compactCollectedItemForWorkflow(item)),
+    };
 }
 
 /**
@@ -192,16 +382,17 @@ async function patchState(updates) {
     if (updates.workflow) {
         next.workflow = {...current.workflow, ...updates.workflow};
     }
-    lastKnownState = next;
+    const storageState = compactStateForStorage(next);
+    lastKnownState = storageState;
     return new Promise((resolve) => {
-        chrome.storage.local.set({[STORE_KEY]: next}, () => {
+        chrome.storage.local.set({[STORE_KEY]: storageState}, () => {
             const err = chrome.runtime.lastError;
             if (err) {
                 // 之前这里静默吞掉了 QuotaExceededError 等错误，导致 rawHtml 大字段被丢弃无人察觉。
                 // 现在让它在控制台大声报错，并把 collected 的体积信息一起打印出来方便定位。
                 try {
-                    const collectedCount = Array.isArray(next.collected) ? next.collected.length : 0;
-                    const payloadBytes = new Blob([JSON.stringify(next)]).size;
+                    const collectedCount = Array.isArray(storageState.collected) ? storageState.collected.length : 0;
+                    const payloadBytes = new Blob([JSON.stringify(storageState)]).size;
                     console.error('[Temu] chrome.storage.local.set 失败', {
                         message: err.message || String(err),
                         collectedCount,
@@ -214,26 +405,6 @@ async function patchState(updates) {
             resolve();
         });
     });
-}
-
-/**
- * 同步读取 workflow 分片（FSM 当前状态/上一个状态/转换原因）。
- * 只读内存缓存，不会触发 chrome.storage 异步读，适合在渲染循环里调用。
- *
- * @returns {ReturnType<typeof defaultState>['workflow']}
- */
-function getStateSnapshotWorkflow() {
-    return lastKnownState.workflow || defaultState().workflow;
-}
-
-/**
- * 同步读取 config 分片（intervalSec/batchSize/totalLimit/采集模式等）。
- * 同样读内存缓存，UI 渲染/防抖判断时用。
- *
- * @returns {ReturnType<typeof defaultState>['config']}
- */
-function getStateSnapshotConfig() {
-    return lastKnownState.config || defaultState().config;
 }
 
 /**
@@ -281,7 +452,7 @@ function getGoodsIdFromUrl(url) {
 }
 
 /**
- * 本地化日期字符串（中文，给调试面板展示用）。
+ * 本地化日期字符串（中文，给状态日志展示用）。
  *
  * @returns {string} 形如 "2026/4/19 下午3:24:08"
  */
@@ -412,7 +583,6 @@ async function transitionTo(nextState, options = {}) {
         },
     });
     notifyState(await getState());
-    renderDebugPanel();
     return true;
 }
 
@@ -449,245 +619,19 @@ function showToast(message, type = 'info') {
     }, 3200);
 }
 
-const DEBUG_PANEL_ID = 'temu-scraper-debug-panel';
-const DEBUG_PANEL_STYLE_ID = 'temu-scraper-debug-style';
 const DEBUG_LOG_LIMIT = 14;
 let debugEntries = [];
-let debugPanelVisible = true;
-let debugPanelBound = false;
 let debugPendingLoadMore = null;
-
-/**
- * 采集模式的中文标签（调试面板/toast 用）。
- *
- * @param {string} mode `COLLECTION_MODES.*`
- * @returns {string}
- */
-function getCollectionModeLabel(mode) {
-    return mode === COLLECTION_MODES.AGGRESSIVE ? '激进自动模式' : '保守辅助模式';
-}
-
-/**
- * 任务模式的中文/英文标签（调试面板用）。
- *
- * @param {string} mode `TASK_MODES.*`
- * @returns {string}
- */
-function getTaskModeLabel(mode) {
-    return {
-        [TASK_MODES.DISCOVERY]: 'Discovery Mode',
-        [TASK_MODES.HARVEST]: 'Harvest Mode',
-        [TASK_MODES.GRAPH]: 'Graph Mode',
-    }[mode] || mode;
-}
-
-/**
- * 切换右下角调试面板的显隐。`false` 会直接把 DOM 节点移除（不是隐藏）。
- * 由 popup 的 `setConfig({showDebugPanel})` 触发。
- *
- * @param {boolean} enabled
- */
-function setDebugPanelVisibility(enabled) {
-    debugPanelVisible = enabled !== false;
-    if (!debugPanelVisible) {
-        document.getElementById(DEBUG_PANEL_ID)?.remove();
-        return;
-    }
-    renderDebugPanel();
-}
-
-/**
- * 懒加载调试面板：注入样式 + 创建 `#temu-scraper-debug-panel` 节点，并绑定一次性的
- * 事件代理（状态跳转按钮、"加载更多"按钮）。幂等，重复调用只会复用已有节点。
- *
- * @returns {HTMLElement | null} 面板节点；document.body 还没准备好时返回 null
- */
-function ensureDebugPanel() {
-    if (!debugPanelVisible) return null;
-    if (!document.body) return null;
-
-    if (!document.getElementById(DEBUG_PANEL_STYLE_ID)) {
-        const style = document.createElement('style');
-        style.id = DEBUG_PANEL_STYLE_ID;
-        style.textContent = `
-      #${DEBUG_PANEL_ID} {
-        position: fixed;
-        right: 12px;
-        bottom: 12px;
-        width: 320px;
-        max-height: 45vh;
-        overflow: auto;
-        z-index: 2147483647;
-        background: rgba(17, 17, 17, 0.92);
-        color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        border-radius: 10px;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
-        font: 12px/1.45 Menlo, Monaco, Consolas, monospace;
-        padding: 10px 10px 8px;
-        white-space: pre-wrap;
-        word-break: break-word;
-        pointer-events: auto;
-        user-select: text;
-        -webkit-user-select: text;
-        overscroll-behavior: contain;
-        scrollbar-width: thin;
-      }
-      #${DEBUG_PANEL_ID} .temu-scraper-debug-title {
-        color: #ffb36b;
-        font-weight: 700;
-        margin-bottom: 6px;
-        position: sticky;
-        top: 0;
-        background: rgba(17, 17, 17, 0.98);
-        padding-bottom: 6px;
-      }
-      #${DEBUG_PANEL_ID} .temu-scraper-debug-line {
-        margin-bottom: 6px;
-        opacity: 0.96;
-      }
-      #${DEBUG_PANEL_ID} .temu-scraper-debug-state {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-bottom: 8px;
-      }
-      #${DEBUG_PANEL_ID} .temu-scraper-debug-pill {
-        display: inline-flex;
-        align-items: center;
-        padding: 4px 8px;
-        border-radius: 999px;
-        background: rgba(255, 179, 107, 0.14);
-        color: #ffd7b0;
-        font-weight: 700;
-      }
-      #${DEBUG_PANEL_ID} .temu-scraper-debug-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-bottom: 8px;
-      }
-      #${DEBUG_PANEL_ID} .temu-scraper-debug-btn {
-        border: 1px solid rgba(255,255,255,0.18);
-        border-radius: 8px;
-        background: rgba(255,255,255,0.08);
-        color: #fff;
-        padding: 6px 8px;
-        cursor: pointer;
-        font: inherit;
-      }
-      #${DEBUG_PANEL_ID} .temu-scraper-debug-btn-primary {
-        background: linear-gradient(135deg, #f15a24, #ff7a18);
-        border-color: transparent;
-        color: #fff;
-        font-weight: 700;
-      }
-      #${DEBUG_PANEL_ID}::-webkit-scrollbar {
-        width: 8px;
-      }
-      #${DEBUG_PANEL_ID}::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.24);
-        border-radius: 999px;
-      }
-      #${DEBUG_PANEL_ID}::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.06);
-        border-radius: 999px;
-      }
-    `;
-        document.documentElement.appendChild(style);
-    }
-
-    let panel = document.getElementById(DEBUG_PANEL_ID);
-    if (!panel) {
-        panel = document.createElement('div');
-        panel.id = DEBUG_PANEL_ID;
-        document.body.appendChild(panel);
-    }
-    if (!debugPanelBound) {
-        panel.addEventListener('click', async (event) => {
-            const target = event.target;
-            if (!(target instanceof HTMLElement)) return;
-            const action = target.getAttribute('data-debug-action');
-            if (!action) return;
-            if (action === 'load-more-now') {
-                await triggerLoadMoreNow();
-                return;
-            }
-            if (action === 'jump-state') {
-                const nextState = target.getAttribute('data-next-state');
-                if (nextState) {
-                    const ok = await transitionTo(nextState, {
-                        force: true,
-                        reason: 'debug-panel-jump',
-                    });
-                    if (!ok) {
-                        showToast(`无法跳转到状态：${nextState}`, 'error');
-                    }
-                }
-            }
-        });
-        debugPanelBound = true;
-    }
-    return panel;
-}
-
-/**
- * 重绘调试面板内容：顶部状态药丸 + 操作按钮 + 最近 14 条 debug 日志。
- * 每次 `debugLog()` / `transitionTo()` 之后会自动调用。DOM 渲染是 `innerHTML` 全量覆盖，
- * 对性能友好度一般，但调试面板节点小、刷新不频繁，可以接受。
- */
-function renderDebugPanel() {
-    if (!debugPanelVisible) return;
-    const panel = ensureDebugPanel();
-    if (!panel) return;
-    const workflow = getStateSnapshotWorkflow();
-    const config = getStateSnapshotConfig();
-    const loadMoreActions = debugPendingLoadMore ? `
-    <button class="temu-scraper-debug-btn temu-scraper-debug-btn-primary" data-debug-action="load-more-now">
-      一键加载更多商品
-    </button>
-  ` : '';
-
-    panel.innerHTML = `
-    <div class="temu-scraper-debug-title">Temu Scraper Debug</div>
-    <div class="temu-scraper-debug-state">
-      <span class="temu-scraper-debug-pill">状态：${escapeHtml(workflow.current)}</span>
-      <span class="temu-scraper-debug-pill">模式：${escapeHtml(getCollectionModeLabel(config.collectionMode))}</span>
-      <span class="temu-scraper-debug-pill">任务：${escapeHtml(getTaskModeLabel(config.taskMode))}</span>
-    </div>
-    <div class="temu-scraper-debug-actions">
-      ${loadMoreActions}
-      <button class="temu-scraper-debug-btn" data-debug-action="jump-state" data-next-state="${FSM_STATES.LIST_DISCOVERY}">列表发现</button>
-      <button class="temu-scraper-debug-btn" data-debug-action="jump-state" data-next-state="${FSM_STATES.TARGET_SELECTED}">目标选中</button>
-      <button class="temu-scraper-debug-btn" data-debug-action="jump-state" data-next-state="${FSM_STATES.DETAIL_SCRAPE}">详情深采</button>
-      <button class="temu-scraper-debug-btn" data-debug-action="jump-state" data-next-state="${FSM_STATES.WIND_CONTROL}">风控暂停</button>
-    </div>
-    ${debugEntries.map((line) => `<div class="temu-scraper-debug-line">${escapeHtml(line)}</div>`).join('')}
-  `;
-}
-
-/**
- * HTML 转义。调试面板是 `innerHTML` 渲染，所有动态文本必须走这里防 XSS。
- *
- * @param {unknown} text
- * @returns {string}
- */
-function escapeHtml(text) {
-    return String(text || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+const TIMELINE_LOG_LIMIT = 50;
+let timelineEntries = [];
+let timelineMinimized = false;
 
 /**
  * 统一的调试日志入口：
- * 1. 追加到 `debugEntries`（环形，只留最近 14 条）并刷新调试面板
- * 2. 同步 `console.log` 一条结构化日志（`[Temu Scraper Debug]` 前缀），排查 bug 主要靠这条
+ * 追加到 `debugEntries`（环形，只留最近 14 条），并同步 `console.log` 一条结构化日志。
  *
  * @param {string} event 事件名，如 `sweep-cards-into-view`
- * @param {Record<string, unknown>} [extra] 附加字段，会被 JSON 序列化贴到面板
+ * @param {Record<string, unknown>} [extra] 附加字段
  */
 function debugLog(event, extra = {}) {
     const payload = {
@@ -699,37 +643,235 @@ function debugLog(event, extra = {}) {
     if (debugEntries.length > DEBUG_LOG_LIMIT) {
         debugEntries = debugEntries.slice(-DEBUG_LOG_LIMIT);
     }
-    renderDebugPanel();
 
     try {
-        // console.log('[Temu Scraper Debug]', event, {
-        //     pageType: getNormalizedPageType(),
-        //     url: location.href,
-        //     ...extra,
-        // });
+        console.log('[Temu Scraper Debug]', event, {
+            pageType: getNormalizedPageType(),
+            url: location.href,
+            ...extra,
+        });
     } catch (_) {
     }
 }
 
 /**
- * 按 `config.showDebugPanel` 决定是否渲染调试面板。`main()` 启动时和
- * `setConfig` 消息处理里各会调用一次，保证面板可见性与 popup 勾选同步。
- *
- * @param {ReturnType<typeof defaultState>['config'] | null} [config]
- * @returns {Promise<void>}
+ * Record one action entry and re-render the timeline panel.
+ * @param {'info'|'warn'|'error'} level
+ * @param {string} label one Chinese sentence summarising what happened
+ * @param {object} [detail] raw data shown on expand
  */
-async function applyDebugPanelConfig(config = null) {
-    const nextConfig = config || (await getState()).config || {};
-    setDebugPanelVisibility(nextConfig.showDebugPanel !== false);
+function logAction(level, label, detail = {}) {
+    const entry = {
+        id: Date.now() + Math.random(),
+        time: new Date().toLocaleTimeString('zh-CN', {hour12: false}),
+        level,
+        label,
+        detail,
+        expanded: false,
+    };
+    timelineEntries.unshift(entry);
+    if (timelineEntries.length > TIMELINE_LOG_LIMIT) {
+        timelineEntries.pop();
+    }
+    renderTimelinePanel();
+}
+
+function ensureTimelinePanel() {
+    if (!document.body) return null;
+
+    let host = document.getElementById('temu-timeline-host');
+    if (!host) {
+        host = document.createElement('div');
+        host.id = 'temu-timeline-host';
+        document.body.appendChild(host);
+    }
+
+    if (!host.shadowRoot) {
+        const shadow = host.attachShadow({mode: 'open'});
+        shadow.innerHTML = `
+            <style>
+                :host {
+                    position: fixed;
+                    right: 16px;
+                    bottom: 16px;
+                    z-index: 2147483647;
+                    font-family: monospace;
+                    font-size: 12px;
+                    color: #e0e0e0;
+                }
+                #tl-wrap {
+                    width: 320px;
+                    max-height: 420px;
+                    overflow: hidden;
+                    background: #1a1a1a;
+                    border: 1px solid rgba(255, 255, 255, 0.16);
+                    border-radius: 8px;
+                    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.36);
+                }
+                #tl-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    height: 32px;
+                    padding: 0 8px 0 10px;
+                    box-sizing: border-box;
+                    background: #242424;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    user-select: none;
+                }
+                #tl-title {
+                    font-weight: 700;
+                }
+                #tl-min {
+                    width: 24px;
+                    height: 24px;
+                    padding: 0;
+                    border: 0;
+                    border-radius: 4px;
+                    background: transparent;
+                    color: #e0e0e0;
+                    cursor: pointer;
+                    font: inherit;
+                    line-height: 24px;
+                }
+                #tl-min:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                }
+                #tl-list {
+                    max-height: 388px;
+                    overflow-y: auto;
+                    padding: 6px;
+                    box-sizing: border-box;
+                }
+                #tl-list.is-minimized {
+                    display: none;
+                }
+                .tl-entry {
+                    margin-bottom: 6px;
+                    padding: 6px 8px;
+                    border-left: 3px solid #4a9eff;
+                    border-radius: 4px;
+                    background: rgba(255, 255, 255, 0.06);
+                    cursor: pointer;
+                    word-break: break-word;
+                }
+                .tl-entry:last-child {
+                    margin-bottom: 0;
+                }
+                .tl-entry.warn {
+                    border-left-color: #f5a623;
+                }
+                .tl-entry.error {
+                    border-left-color: #e74c3c;
+                }
+                .tl-label {
+                    color: #e0e0e0;
+                    line-height: 1.45;
+                }
+                .tl-entry.warn .tl-label {
+                    color: #f5a623;
+                }
+                .tl-entry.error .tl-label {
+                    color: #e74c3c;
+                }
+                pre {
+                    margin: 6px 0 0;
+                    padding: 6px;
+                    max-height: 180px;
+                    overflow: auto;
+                    border-radius: 4px;
+                    background: rgba(0, 0, 0, 0.35);
+                    color: #d8d8d8;
+                    font: 11px/1.45 monospace;
+                    white-space: pre-wrap;
+                }
+            </style>
+            <div id="tl-wrap">
+                <div id="tl-header">
+                    <span id="tl-title">📋 操作时间线</span>
+                    <button id="tl-min" type="button" title="最小化">—</button>
+                </div>
+                <div id="tl-list"></div>
+            </div>
+        `;
+        shadow.getElementById('tl-min')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            timelineMinimized = !timelineMinimized;
+            renderTimelinePanel();
+        });
+    }
+
+    return host.shadowRoot;
+}
+
+function escapeTimelineHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function stringifyTimelineDetail(detail) {
+    try {
+        return JSON.stringify(detail || {}, null, 2);
+    } catch (error) {
+        return JSON.stringify({error: error?.message || String(error)}, null, 2);
+    }
+}
+
+function renderTimelinePanel() {
+    const shadow = ensureTimelinePanel();
+    if (!shadow) return;
+
+    // 同步整体面板显隐（由 popup 开关控制）
+    const host = document.getElementById('temu-timeline-host');
+    if (host) host.style.display = timelineVisible ? '' : 'none';
+
+    const list = shadow.getElementById('tl-list');
+    if (!list) return;
+
+    list.classList.toggle('is-minimized', timelineMinimized);
+    list.innerHTML = timelineEntries.map((entry) => `
+        <div class="tl-entry ${escapeTimelineHtml(entry.level)}" data-id="${entry.id}">
+            <div class="tl-label">[${escapeTimelineHtml(entry.time)}] ${escapeTimelineHtml(entry.label)}</div>
+            ${entry.expanded ? `<pre>${escapeTimelineHtml(stringifyTimelineDetail(entry.detail))}</pre>` : ''}
+        </div>
+    `).join('');
+
+    for (const node of Array.from(list.querySelectorAll('.tl-entry'))) {
+        node.addEventListener('click', () => {
+            const id = Number(node.getAttribute('data-id'));
+            const entry = timelineEntries.find((item) => item.id === id);
+            if (!entry) return;
+            entry.expanded = !entry.expanded;
+            renderTimelinePanel();
+        });
+    }
 }
 
 let mainLock = false;
 let pendingLoadMoreResumeTimer = null;
+
+// content script 注入后立即拉取一次排除词；失败时保留本地兜底，不阻塞主流程
+loadExclusionKeywords();
+
+// 读取日志面板显示偏好，恢复上次用户的选择（默认显示）
+const LOG_VISIBLE_KEY = 'temu_log_visible';
+let timelineVisible = true;
+chrome.storage.local.get([LOG_VISIBLE_KEY], (result) => {
+    timelineVisible = result[LOG_VISIBLE_KEY] !== false;
+    const host = document.getElementById('temu-timeline-host');
+    if (host) host.style.display = timelineVisible ? '' : 'none';
+});
 let pendingHighlightRefreshTimer = null;
 let pendingHighlightObserver = null;
 let pendingAutoClickTimer = null;
 let pendingAutoClickGoodsId = '';
+let lastAutoClickPoint = null;
 let uploadInFlight = false;
+const AUTO_CLICK_MARKER_PREVIEW_MS = 3000;
 
 /**
  * 把 `chrome.runtime.sendMessage` 的回调风格包成 Promise，并把 `lastError` 和同步异常
@@ -783,18 +925,16 @@ async function main() {
 
     try {
         const state = await getState();
-        await applyDebugPanelConfig(state.config);
-        if (!state.running) return;
+        if (!state.running) {
+            logAction('warn', 'main() 跳过：采集未启动');
+            return;
+        }
 
         notifyState(state);
 
         // 非 Temu 页：尝试回跳到最近一次跑过商品流的页面（兼容旧字段 listingUrl）
         if (getPageType() === 'other') {
-            const fallback = state.lastDiscoveryUrl || state.listingUrl || '';
-            if (fallback) {
-                await sleep(1000);
-                location.href = fallback;
-            }
+            logAction('warn', `非 Temu 页面`);
             return;
         }
 
@@ -802,14 +942,22 @@ async function main() {
         //    detail → detail2、甚至 listing 内部翻页）都会进到这里。
         //    重置放在 scrapeAndUpsertCurrentProduct 之前，让主商品也计入本页 batch 的第一条。
         if (location.href !== state.batchAnchorUrl) {
+            logAction('info', `新页面进入，重置 batch 计数（原累计=${getTotalCollected(state)}，其中 collected=${state.collected.length} + 历史=${state.totalCollected || 0}）`, {
+                newUrl: location.href,
+                batchStartCount: getTotalCollected(state),
+                collectedNow: state.collected.length,
+                totalCollectedHistory: state.totalCollected || 0,
+                seenGoodsIdsSize: (state.seenGoodsIds || []).length,
+            });
             await patchState({
-                batchStartCount: state.collected.length,
+                batchStartCount: getTotalCollected(state),
                 batchAnchorUrl: location.href,
             });
         }
 
         // 2) 当前 URL 是商品锚点 → 补齐主商品字段（独立函数，列表/详情/搜索/任意页都生效）
         if (hasCurrentProductAnchor()) {
+            logAction('info', '当前页是商品详情，触发主商品字段补全');
             await scrapeAndUpsertCurrentProduct();
         }
 
@@ -820,11 +968,16 @@ async function main() {
         //    "本页之内"已采的条数，detail 和 listing 各自独立计数。
         //    没满就先跑 productStreamTick 继续采（期间会 auto-click 联想区"查看更多"），
         //    本轮 main() 直接 return，等下一轮再判定。
-        const batchLoaded = refreshed.collected.length - refreshed.batchStartCount;
+        const batchLoaded = getTotalCollected(refreshed) - refreshed.batchStartCount;
         const batchFull = batchLoaded >= refreshed.config.batchSize
-            || refreshed.collected.length >= refreshed.config.totalLimit;
+            || getTotalCollected(refreshed) >= refreshed.config.totalLimit;
 
         if (!batchFull) {
+            logAction('info', `本批未满（${batchLoaded}/${refreshed.config.batchSize}），进入商品流扫描`, {
+                batchLoaded,
+                batchSize: refreshed.config.batchSize,
+                total: getTotalCollected(refreshed),
+            });
             await transitionTo(FSM_STATES.LIST_DISCOVERY, {
                 phase: 'listing',
                 reason: 'stream-discovery',
@@ -842,6 +995,10 @@ async function main() {
         // 4) batch 已满 + 已有目标队列 → 直接高亮第一项，等用户/auto-click 跳转
         if (refreshed.targetQueue.length > 0) {
             const nextItem = refreshed.targetQueue[0];
+            logAction('info', `本批已满，队列已有目标（${refreshed.targetQueue.length} 条），直接高亮等跳转`, {
+                goodsId: nextItem.goodsId,
+                queueLen: refreshed.targetQueue.length,
+            });
             await transitionTo(FSM_STATES.TARGET_SELECTED, {
                 phase: 'navigating',
                 reason: 'queue-ready',
@@ -862,6 +1019,10 @@ async function main() {
 
         // 5) batch 已满但队列空 → 进入"商品流发现"，由 productStreamTick 末尾的
         //    runInitialFilter 挑目标装队列
+        logAction('info', '本批已满，队列为空，进入商品流发现挑选目标', {
+            batchLoaded,
+            total: getTotalCollected(refreshed),
+        });
         await transitionTo(FSM_STATES.LIST_DISCOVERY, {
             phase: 'listing',
             reason: 'stream-discovery',
@@ -893,7 +1054,7 @@ function notifyState(state, pageType = getNormalizedPageType()) {
         workflowState: getCurrentState(state),
         workflow: state.workflow,
         running: state.running,
-        total: state.collected.length,
+        total: getTotalCollected(state),
         queueLen: state.targetQueue.length,
         stats: state.stats,
         config: state.config,
@@ -926,21 +1087,26 @@ function enumerateProductStreams() {
     const streams = [];
     const relatedRoot = getRelatedItemsRoot();
 
-    // 主流：document 全局，但不要把联想区的卡再算进来 —— 后续 scrapeStream 会按 root 过滤
-    streams.push({
-        id: 'main',
-        sourceTag: 'listing',
-        getCards: () => {
-            const all = findProductCards(document);
-            const skip = getRelatedItemsRoot();
-            if (!skip) return all;
-            return all.filter((card) => !skip.contains(card));
-        },
-        getLoadMoreBtn: () => findLoadMoreBtn(),
-        ensureReady: async () => true,
-    });
+    // 主流：列表页/搜索页主区，排除联想区
+    // streams.push({
+    //     id: 'main',
+    //     sourceTag: 'listing',
+    //     getCards: () => {
+    //         const all = findProductCards(document);
+    //         const skip = getRelatedItemsRoot();
+    //         if (!skip) return all;
+    //         return all.filter((card) => !skip.contains(card));
+    //     },
+    //     // 本流的本地仓删除策略：优先精确网格选择器，fallback 遍历卡片直接删
+    //     removeLocalWarehouse: () => {
+    //         const cards = findProductCards(document).filter((c) => !getRelatedItemsRoot()?.contains(c));
+    //         return removeLocalWarehouseFromCards(cards, /* removeParent */ false);
+    //     },
+    //     getLoadMoreBtn: () => findLoadMoreBtn(),
+    //     ensureReady: async () => true,
+    // });
 
-    // 联想流：仅在 #goodsRecommend 存在时才作为独立 stream
+    // 联想流：详情页 #goodsRecommend 区域
     if (relatedRoot) {
         streams.push({
             id: 'related',
@@ -950,7 +1116,13 @@ function enumerateProductStreams() {
                 if (!root) return [];
                 return findProductCards(root);
             },
-            getLoadMoreBtn: () => null, // 联想区暂无独立的 load more 按钮
+            // 联想区卡片外面多一层网格包装容器，需要删 parentElement 才能整体移除
+            removeLocalWarehouse: () => {
+                const root = getRelatedItemsRoot();
+                if (!root) return 0;
+                return removeLocalWarehouseFromCards(findProductCards(root), /* removeParent */ true);
+            },
+            getLoadMoreBtn: () => findLoadMoreBtn(),
             ensureReady: async () => {
                 const currentId = getGoodsIdFromUrl(location.href);
                 return ensureRelatedAreaReady(currentId);
@@ -962,38 +1134,57 @@ function enumerateProductStreams() {
 }
 
 /**
- * 对单个商品流执行采集 (sweep + scrape)。
+ * 对单个商品流执行完整处理管道：
+ *   1. 按流策略删除本地仓元素（removeParent 差异已封装在 stream.removeLocalWarehouse 里）
+ *   2. sweepCardsIntoView 触发懒加载
+ *   3. 提取卡片字段并去重
+ *   4. 构建关系边（currentId → 当前流中的其他商品）
  *
- * 【流程说明】
- * 1. 先调用 sweepCardsIntoView 把卡片滚入视口，触发 Temu 的懒加载
- * 2. 获取所有商品卡片 DOM 节点
- * 3. 遍历每张卡，调用 extractItemFromCard 提取字段
- * 4. 按 goodsId 去重，避免重复采集
- * 5. 给每条记录打上 source 标签 (listing/related)
+ * 调用方只需传入流描述符和上下文，不感知"当前是列表页还是详情页"。
  *
- * 【参数说明】
- * - stream.id: 流标识 ('main' / 'related')
- * - stream.sourceTag: 来源标签 ('listing' / 'related')
- * - stream.getCards(): 获取该流下的所有商品卡
- * - stream.ensureReady(): 确保流已准备好 (如联想区需要先滚动到底部)
- *
- * @param {object} stream 商品流对象
- * @returns {Promise<Array>} 采集到的商品列表
+ * @param {object} stream 商品流描述符（由 enumerateProductStreams 创建）
+ * @param {{shouldRemoveLocalWarehouse: boolean, currentId: string}} context
+ * @returns {Promise<{removed: number, items: Array, edges: Array}>}
  */
-async function harvestStream(stream) {
-    await sweepCardsIntoView({streamId: stream.id});
+async function processStream(stream, context) {
+    // 1. 按流策略删本地仓（main 用网格选择器，related 删 parentElement）
+    const removed = context.shouldRemoveLocalWarehouse
+        ? stream.removeLocalWarehouse()
+        : 0;
+
+    // 2. sweep 触发懒加载
+    await sweepCardsIntoView();
+
+    // 3. 提取 + 去重
     const cards = stream.getCards();
-    if (!cards.length) return [];
+    logAction('info', `流 [${stream.id}] sweep 完成，找到 ${cards.length} 张卡片`, {
+        streamId: stream.id,
+        cardCount: cards.length,
+    });
     const items = [];
     const seen = new Set();
     for (let index = 0; index < cards.length; index += 1) {
-        const card = cards[index];
-        const item = extractItemFromCard(card, stream.sourceTag);
+        const item = extractItemFromCard(cards[index], stream.sourceTag);
         if (!item?.goodsId || seen.has(item.goodsId)) continue;
         seen.add(item.goodsId);
         items.push({...item, domIndex: index, sourceRootId: stream.id});
     }
-    return items;
+    logAction('info', `流 [${stream.id}] 去重后有效商品 ${items.length} 条`);
+
+    // 4. 构建关系边
+    const edges = [];
+    if (context.currentId) {
+        for (const item of items) {
+            if (!item.goodsId || item.goodsId === context.currentId) continue;
+            edges.push({
+                from_goods_id: context.currentId,
+                to_goods_id: item.goodsId,
+                relation_type: stream.sourceTag === 'related' ? 'related' : 'co_listing',
+            });
+        }
+    }
+
+    return {removed, items, edges};
 }
 
 /**
@@ -1016,35 +1207,44 @@ async function harvestStream(stream) {
  * @returns {Promise<void>}
  */
 async function productStreamTick() {
+    const state = await getState();
     const streams = enumerateProductStreams();
+    logAction('info', `商品流扫描开始，发现 ${streams.length} 条流`, {
+        streamIds: streams.map((stream) => stream.id),
+    });
     const currentId = getGoodsIdFromUrl(location.href);
+    const shouldRemoveLocalWarehouse = Boolean(state.config?.removeLocalWarehouse);
 
+    // ── 逐流处理（唯一感知页面类型的地方是 enumerateProductStreams，这里不区分） ──
     let totalAdded = 0;
+    let totalRemovedLocalWarehouse = 0;
     const perStreamStats = [];
     const allEdges = [];
 
     for (const stream of streams) {
         const ready = await stream.ensureReady();
         if (!ready) {
-            perStreamStats.push({id: stream.id, ready: false, scraped: 0, added: 0});
+            logAction('warn', `流 [${stream.id}] 未就绪，跳过`);
+            perStreamStats.push({id: stream.id, ready: false, scraped: 0, added: 0, removed: 0});
             continue;
         }
-        const scraped = await harvestStream(stream);
-        const added = await upsertItems(scraped);
-        totalAdded += added;
-        perStreamStats.push({id: stream.id, ready: true, scraped: scraped.length, added});
 
-        // 记录 (current → other) 的关系边；联想区或主区都视情况上报
-        if (currentId) {
-            for (const item of scraped) {
-                if (!item.goodsId || item.goodsId === currentId) continue;
-                allEdges.push({
-                    from_goods_id: currentId,
-                    to_goods_id: item.goodsId,
-                    relation_type: stream.sourceTag === 'related' ? 'related' : 'co_listing',
-                });
-            }
-        }
+        const {removed, items, edges} = await processStream(stream, {
+            shouldRemoveLocalWarehouse,
+            currentId,
+        });
+        const added = await upsertItems(items);
+        logAction('info', `流 [${stream.id}] 扫描完成：发现 ${items.length} 条，新增 ${added} 条，删本地仓 ${removed} 条`, {
+            scraped: items.length,
+            added,
+            removed,
+            streamId: stream.id,
+        });
+
+        totalAdded += added;
+        totalRemovedLocalWarehouse += removed;
+        allEdges.push(...edges);
+        perStreamStats.push({id: stream.id, ready: true, scraped: items.length, added, removed});
     }
 
     if (allEdges.length) {
@@ -1052,34 +1252,32 @@ async function productStreamTick() {
     }
 
     const refreshed = await getState();
-    const batchLoaded = refreshed.collected.length - refreshed.batchStartCount;
+    const batchLoaded = getTotalCollected(refreshed) - refreshed.batchStartCount;
 
-    await patchState({
-        stats: {
-            listingTotal: refreshed.collected.length,
-        },
-    });
+    await patchState({stats: {listingTotal: getTotalCollected(refreshed)}});
 
-    debugLog('product-stream-tick', {
-        currentId,
-        streams: perStreamStats,
-        totalAdded,
-        batchLoaded,
-        total: refreshed.collected.length,
-    });
-
-    notify({
-        action: 'listingProgress',
-        total: refreshed.collected.length,
-        batchLoaded,
-        added: totalAdded,
-        streams: perStreamStats,
-    });
 
     if (
         batchLoaded >= refreshed.config.batchSize ||
-        refreshed.collected.length >= refreshed.config.totalLimit
+        getTotalCollected(refreshed) >= refreshed.config.totalLimit
     ) {
+        logAction('info', `本批已满（${batchLoaded}/${refreshed.config.batchSize}），进入初筛`, {
+            batchLoaded,
+            total: getTotalCollected(refreshed),
+        });
+        await runInitialFilter(await getState());
+        return;
+    }
+
+    // 本轮扫描 0 新增说明当前可见区域全是已见商品（seenIds 全覆盖）。
+    // 此时点"查看更多"只会加载同类商品，大概率同样已见，陷入无限循环。
+    // 直接进初筛，由 runInitialFilter 判断是否换页/结束。
+    if (totalAdded === 0) {
+        logAction('info', '本轮扫描 0 新增（全部已见），跳过"查看更多"，进入初筛', {
+            batchLoaded,
+            total: getTotalCollected(refreshed),
+            perStreamStats,
+        });
         await runInitialFilter(await getState());
         return;
     }
@@ -1109,13 +1307,14 @@ async function productStreamTick() {
     if (loadMoreBtn) {
         // loadMoreBtn.scrollIntoView({behavior: 'smooth', block: 'center'});
         const shouldAuto = refreshed.config.collectionMode === COLLECTION_MODES.AGGRESSIVE;
+        logAction('info', `找到"查看更多"按钮，${shouldAuto ? '即将自动点击' : '等待手动点击'}`);
         highlightLoadMoreButton(loadMoreBtn, {
             autoClick: shouldAuto,
             waitSec: refreshed.config.intervalSec,
         });
         notify({
             action: 'clickMore',
-            total: refreshed.collected.length,
+            total: getTotalCollected(refreshed),
             autoClick: shouldAuto,
         });
         if (shouldAuto) {
@@ -1125,17 +1324,10 @@ async function productStreamTick() {
     }
 
     // 没有 load more 也没有可消费数据 → 让 runInitialFilter 决定 finish 或换页
+    logAction('warn', '未找到"查看更多"按钮，进入初筛');
     await runInitialFilter(await getState());
 }
 
-/**
- * 兼容老调用：保留 `listingTick` 名字，内部直接转发到 `productStreamTick`。
- *
- * @returns {Promise<void>}
- */
-async function listingTick() {
-    return productStreamTick();
-}
 
 /**
  * 初始过滤。"一批抓满之后从 collected 里挑下一跳目标"。
@@ -1159,30 +1351,76 @@ async function runInitialFilter(state) {
     });
     await patchState({phase: 'filtering'});
 
+    // 只从当前页面 DOM 可见的商品里挑，保证 highlightPendingItem 一定能找到节点。
+    // 用 state.collected 里的富数据排序（含详情页补全的字段），但限制在当前页可见范围。
+    const currentPageIds = new Set();
+    for (const stream of enumerateProductStreams()) {
+        for (const card of stream.getCards()) {
+            const item = extractItemFromCard(card, stream.sourceTag);
+            if (item?.goodsId) currentPageIds.add(item.goodsId);
+        }
+    }
+
     const processed = new Set(state.processedIds);
-    const queue = selectPriorityItems(
-        state.collected.filter((item) => item.goodsId && !processed.has(item.goodsId)),
-        1
+    const visibleCandidates = state.collected.filter(
+        (item) => item.goodsId && !processed.has(item.goodsId) && currentPageIds.has(item.goodsId)
     );
+    // 当前页全都处理过时回退到全量，防止死锁
+    const pool = visibleCandidates.length > 0
+        ? visibleCandidates
+        : state.collected.filter((item) => item.goodsId && !processed.has(item.goodsId));
+    logAction('info', `初筛：当前页可见商品 ${currentPageIds.size} 条，历史候选 ${visibleCandidates.length} 条（全量兜底：${pool === visibleCandidates ? '否' : '是'}）`, {
+        visibleCount: currentPageIds.size,
+        candidateCount: visibleCandidates.length,
+        fallback: pool !== visibleCandidates,
+    });
+
+    const queue = selectPriorityItems(pool, 1, state.recentProcessedNames || []);
+    if (queue.length > 0) {
+        logAction('info', `初筛命中：goodsId=${queue[0].goodsId} 名称="${(queue[0].name || queue[0].fullTitle || '').slice(0, 20)}"`, {
+            goodsId: queue[0].goodsId,
+            starRating: queue[0].starRating,
+            sales: queue[0].sales,
+        });
+    } else {
+        logAction('warn', '初筛无结果：候选池已全部处理或为空', {
+            poolSize: pool.length,
+            processedCount: processed.size,
+        });
+    }
 
     notify({
         action: 'filtered',
         validCount: queue.length,
         queued: queue.length,
-        total: state.collected.length,
+        total: getTotalCollected(state),
     });
 
     if (queue.length === 0) {
         // 没可挑的了：检查当前页是否还有"可扩池"的能力。load more 按钮或联想流都算。
         const canExpand = Boolean(findLoadMoreBtn()) || Boolean(getRelatedItemsRoot());
-        if (state.collected.length >= state.config.totalLimit || !canExpand) {
+
+        // collected 为空意味着所有商品已上传清空，当前页没有任何待处理候选。
+        // 此时即便有"查看更多"按钮，继续扫描也只会得到全是 seenIds 的商品，
+        // 永远无法通过 batchLoaded gate，形成死循环。直接结束采集。
+        const collectedExhausted = (state.collected?.length || 0) === 0;
+        if (getTotalCollected(state) >= state.config.totalLimit || !canExpand || collectedExhausted) {
+            if (collectedExhausted && canExpand) {
+                logAction('warn', '当前页 collected 已全部上传清空，继续扫描无法得到新目标，结束采集', {
+                    totalCollected: getTotalCollected(state),
+                    seenGoodsIdsSize: (state.seenGoodsIds || []).length,
+                });
+            } else {
+                logAction('warn', '无法继续扩池，准备结束采集');
+            }
             await finish(await getState());
             return;
         }
 
+        logAction('info', '当前页仍可扩池（有查看更多或联想区），重置 batch 继续采');
         await patchState({
             phase: 'listing',
-            batchStartCount: state.collected.length,
+            batchStartCount: getTotalCollected(state),
             stats: {cycles: (state.stats.cycles || 0) + 1},
         });
 
@@ -1224,6 +1462,7 @@ async function scrapeAndUpsertCurrentProduct() {
     const currentUrl = location.href;
     const currentId = getGoodsIdFromUrl(currentUrl);
     if (!currentId) return;
+    logAction('info', `详情页主商品抓取开始：goodsId=${currentId}`);
 
     await transitionTo(FSM_STATES.DETAIL_SCRAPE, {
         phase: 'detail',
@@ -1264,6 +1503,14 @@ async function scrapeAndUpsertCurrentProduct() {
             rawText: detailRawBlock.rawText,
         },
     ]);
+    logAction('info', `详情页主商品字段补全完成：标题="${(detailData.fullTitle || '').slice(0, 20)}" 价格=${detailData.price || ''} 销量=${detailData.sales || ''} 星级=${detailData.stars || ''}`, {
+        goodsId: currentId,
+        title: detailData.fullTitle || '',
+        price: detailData.price || '',
+        sales: detailData.sales || '',
+        stars: detailData.stars || '',
+        reviews: detailData.reviews || '',
+    });
 
     await patchState({
         targetQueue: [],
@@ -1413,34 +1660,6 @@ function isVisibleElement(element) {
 }
 
 /**
- * @deprecated 兼容旧调用：现在等价于 `scrapeAndUpsertCurrentProduct() + productStreamTick()`。
- * 没有强制要求"在详情页才能跑" —— 只要 URL 含商品锚点就抓主商品字段，剩余靠 streamTick。
- *
- * @returns {Promise<void>}
- */
-async function handleDetail() {
-    if (hasCurrentProductAnchor()) {
-        await scrapeAndUpsertCurrentProduct();
-    }
-    await productStreamTick();
-}
-
-/**
- * @deprecated 兼容旧调用：联想商品的采集已被 `productStreamTick` 中的 'related' stream 接管。
- * 保留函数名作为外部调试入口，仍返回"本次入队的目标数"。
- *
- * @param {string} currentId 当前商品锚点 ID（仅用于上报 edges）
- * @returns {Promise<number>}
- */
-async function collectRelatedItems(currentId) {
-    void currentId;
-    const before = (await getState()).targetQueue.length;
-    await productStreamTick();
-    const after = (await getState()).targetQueue.length;
-    return Math.max(after - before, 0);
-}
-
-/**
  * 确认详情页底部的"联想商品"区域已经准备好（DOM 存在 + 有候选卡片）。
  *   1. 把页面滚到底部触发 Temu 的 lazy render
  *   2. 轮询 `findRelatedArea()`
@@ -1529,17 +1748,26 @@ async function enqueueItems(items, options = {}) {
     const queue = options.resetQueue ? [] : [...state.targetQueue];
     const queueIds = new Set(queue.map((item) => item.goodsId));
     const processedIds = new Set(state.processedIds);
+    let recentProcessedNames = [...(state.recentProcessedNames || [])];
 
     for (const item of items) {
         if (!item.goodsId || queueIds.has(item.goodsId)) continue;
         queue.push(item);
         queueIds.add(item.goodsId);
-        if (options.markProcessed) processedIds.add(item.goodsId);
+        if (options.markProcessed) {
+            processedIds.add(item.goodsId);
+            // 把商品名加入滑动窗口，超出上限时丢弃最老的
+            const name = item.name || item.fullTitle || '';
+            if (name) {
+                recentProcessedNames = [...recentProcessedNames, name].slice(-RECENT_NAMES_WINDOW);
+            }
+        }
     }
 
     await patchState({
         targetQueue: queue,
         processedIds: Array.from(processedIds),
+        recentProcessedNames,
         phase: options.phase || state.phase,
         stats: {
             cycles: (state.stats.cycles || 0) + (options.incrementCycles ? 1 : 0),
@@ -1553,19 +1781,33 @@ async function enqueueItems(items, options = {}) {
  *   1. `uploadPendingBatch(true)` 强制把本地积压的批上传掉
  *   2. 通知后端 run 结束
  *   3. 把 state.running 置 false、phase 改 done
- *   4. 广播 `done` 消息让 popup 切到已完成态（CSV 可导出）
+ *   4. 广播 `done` 消息让 popup 切到已完成态
  *
  * @param {ReturnType<typeof defaultState>} state
  * @returns {Promise<void>}
  */
 async function finish(state) {
+    logAction('info', `采集结束，共采 ${getTotalCollected(state)} 条，已处理 ${state.processedIds?.length || 0} 条`, {
+        total: getTotalCollected(state),
+        processed: state.processedIds?.length,
+    });
     await uploadPendingBatch(true);
-    await finishBackendRun('completed', state.collected.length);
+    // uploadPendingBatch 成功后 collected 已被清空、totalCollected 已累加，
+    // 读最新 state 来获取正确的最终计数。
+    const afterUpload = await getState();
+    logAction('info', `[finish] 最终计数：totalCollected=${afterUpload.totalCollected || 0}，collected 剩余=${afterUpload.collected.length}，合计=${getTotalCollected(afterUpload)}，seenGoodsIds=${(afterUpload.seenGoodsIds || []).length}`, {
+        totalCollectedHistory: afterUpload.totalCollected || 0,
+        collectedRemaining: afterUpload.collected.length,
+        grandTotal: getTotalCollected(afterUpload),
+        seenGoodsIdsSize: (afterUpload.seenGoodsIds || []).length,
+        processedIds: afterUpload.processedIds?.length || 0,
+    });
+    await finishBackendRun('completed', getTotalCollected(afterUpload));
     await patchState({running: false, phase: 'done'});
     const latest = await getState();
     notify({
         action: 'done',
-        total: latest.collected.length,
+        total: getTotalCollected(latest),
         queueLen: latest.targetQueue.length,
         stats: latest.stats,
     });
@@ -1604,15 +1846,6 @@ async function finishBackendRun(status, totalCollected = null) {
         runUuid: state.runUuid,
         status,
     });
-}
-
-/**
- * 抓取列表页可见的商品卡。返回值里 `mode='listing'` 会被 upsert 打标来源。
- *
- * @returns {Array<object>}
- */
-function scrapeListingItems() {
-    return scrapeCardsFromPage({mode: 'listing'});
 }
 
 /**
@@ -1706,6 +1939,7 @@ function findProductCards(root = document) {
  */
 async function highlightPendingItem(item, labelText) {
     if (!item?.goodsId) return;
+    logAction('info', `准备高亮目标：goodsId=${item.goodsId} 来源=${item.source || '?'}`);
     debugLog('highlight-start', {
         goodsId: item.goodsId,
         source: item.source,
@@ -1718,6 +1952,10 @@ async function highlightPendingItem(item, labelText) {
 
     const target = await waitForHighlightTarget(item);
     if (!target) {
+        logAction('error', `高亮失败：页面上找不到 goodsId=${item.goodsId} 的卡片节点`, {
+            goodsId: item.goodsId,
+            source: item.source,
+        });
         debugLog('highlight-target-missing', {
             goodsId: item.goodsId,
             source: item.source,
@@ -1729,8 +1967,31 @@ async function highlightPendingItem(item, labelText) {
 
     const finalLabel = labelText || '待处理目标';
     applyPendingHighlight(target, finalLabel);
+    logAction('info', `高亮已应用：goodsId=${item.goodsId}`);
     keepPendingHighlightAlive(item, finalLabel);
-    scrollElementToViewportAnchor(target, item.source === 'related' ? 0.16 : 0.22);
+    const scrollAnchor = item.source === 'related' ? 0.16 : 0.22;
+    logAction('info', `开始滚动至高亮商品：goodsId=${item.goodsId}`, {
+        goodsId: item.goodsId,
+        source: item.source,
+        anchorRatio: scrollAnchor
+    });
+    const scrolled = await scrollToRenderedAnchor(target, scrollAnchor, 50, 800000, item);
+    if (scrolled) {
+        const rectFinal = target.getBoundingClientRect();
+        const desiredTop = Math.round(window.innerHeight * scrollAnchor);
+        logAction('info', `滚动完成：goodsId=${item.goodsId} 偏差=${Math.round(rectFinal.top - desiredTop)}px`, {
+            goodsId: item.goodsId,
+            anchorRatio: scrollAnchor,
+            desiredTop,
+            rectFinal_top: Math.round(rectFinal.top),
+            delta: Math.round(rectFinal.top - desiredTop),
+        });
+    } else {
+        logAction('warn', `滚动超时：goodsId=${item.goodsId} 元素 3s 内未渲染`, {
+            goodsId: item.goodsId,
+            source: item.source
+        });
+    }
     debugLog('highlight-applied', {
         goodsId: item.goodsId,
         source: item.source,
@@ -1738,6 +1999,7 @@ async function highlightPendingItem(item, labelText) {
         className: target.className || '',
     });
     scheduleAutoClickIfNeeded(item, target);
+    logAction('info', '已排期自动点击');
     await rebindPendingHighlight(item, finalLabel, 5, 180);
 }
 
@@ -1755,7 +2017,7 @@ function clearPendingAutoClick() {
 /**
  * 如果配置里开启了 `autoClickV1`，就给当前 pending 目标排一次延时自动点击。
  *
- * 延时用 4.2~9.8s 的随机抖动，另有 18% 概率再额外 12~25s 的长抖动，模拟真人浏览节奏。
+ * 激进模式用短延时（1.2~2.6s）快速推进；其他模式保留更长的人类化抖动。
  * 定时器触发时会二次校验 state.running / goodsId 没变才真的点下去。
  *
  * @param {{goodsId: string, source?: string}} item
@@ -1764,20 +2026,30 @@ function clearPendingAutoClick() {
  */
 async function scheduleAutoClickIfNeeded(item, target) {
     const state = await getState();
-    if (!state.running || !state.config?.autoClickV1) return;
+    if (!state.running || !state.config?.autoClickV1) {
+        if (state.running && !state.config?.autoClickV1) {
+            logAction('warn', 'autoClickV1 未开启，等待手动点击');
+        }
+        return;
+    }
     if (!item?.goodsId || !target) return;
 
     clearPendingAutoClick();
     pendingAutoClickGoodsId = item.goodsId;
 
-    const baseDelay = randomInt(4200, 9800);
-    const extraDelay = Math.random() < 0.18 ? randomInt(12000, 25000) : 0;
+    const isAggressive = state.config.collectionMode === COLLECTION_MODES.AGGRESSIVE;
+    const baseDelay = isAggressive ? randomInt(1200, 2600) : randomInt(4200, 9800);
+    const extraDelay = isAggressive ? 0 : (Math.random() < 0.18 ? randomInt(12000, 25000) : 0);
     const totalDelay = baseDelay + extraDelay;
 
     debugLog('auto-click-scheduled', {
         goodsId: item.goodsId,
         source: item.source,
         delayMs: totalDelay,
+    });
+    logAction('info', `自动点击已排期：goodsId=${item.goodsId} 延迟 ${(totalDelay / 1000).toFixed(1)}s`, {
+        delayMs: totalDelay,
+        isAggressive,
     });
 
     pendingAutoClickTimer = setTimeout(async () => {
@@ -1804,8 +2076,10 @@ async function scheduleAutoClickIfNeeded(item, target) {
  * @returns {Promise<void>}
  */
 async function performAutoClickV1(item) {
+    logAction('info', `执行自动点击：goodsId=${item.goodsId}`);
     const target = findTargetByItem(item);
     if (!target) {
+        logAction('error', `自动点击失败：找不到目标节点 goodsId=${item.goodsId}`);
         debugLog('auto-click-target-missing', {goodsId: item.goodsId, source: item.source});
         return;
     }
@@ -1821,48 +2095,70 @@ async function performAutoClickV1(item) {
 
     const clickable = findClickableTarget(target);
     if (!clickable) {
-        debugLog('auto-click-clickable-missing', {goodsId: item.goodsId, source: item.source});
         return;
     }
 
-    const point = getSafeClickPoint(clickable);
-    if (!point || !isPointClickable(clickable, point)) {
-        debugLog('auto-click-point-blocked', {
-            goodsId: item.goodsId,
-            source: item.source,
-        });
+    // 命中商品 a 标签后，让 Temu 自己在点击链路里补齐 href 参数并跳转。
+    const anchorCandidates = [];
+    if (clickable.tagName === 'A') anchorCandidates.push(clickable);
+    anchorCandidates.push(...Array.from(clickable.querySelectorAll?.('a[href*="-g-"]') || []));
+    anchorCandidates.push(...Array.from(target.querySelectorAll?.('a[href*="-g-"]') || []));
+    const goodsAnchor = anchorCandidates.find((a) => getGoodsIdFromUrl(a?.href || '') === item.goodsId)
+        || anchorCandidates[0]
+        || null;
+    const clickTarget = goodsAnchor || clickable;
+
+    const point = goodsAnchor ? getProbeStyleAnchorClickPoint(goodsAnchor) : getSafeClickPoint(clickTarget);
+    if (!point || !isPointClickable(clickTarget, point)) {
         return;
     }
 
-    debugLog('auto-click-start', {
+    // await previewAutoClickPoint(point, AUTO_CLICK_MARKER_PREVIEW_MS);
+    await dispatchProbeStyleAnchorClick();
+    logAction('info', '鼠标事件已派发，等待页面跳转', {
         goodsId: item.goodsId,
-        source: item.source,
-        tagName: clickable.tagName,
-    });
-
-    await dispatchHumanLikeClick(clickable, point);
-
-    debugLog('auto-click-dispatched', {
-        goodsId: item.goodsId,
-        source: item.source,
-        x: Math.round(point.clientX),
-        y: Math.round(point.clientY),
+        point,
     });
 }
 
+
 /**
- * 从卡片根节点里挑一个真正可点的子节点：优先商品锚点 / 按钮，退回父节点自身。
+ * 从卡片根节点里挑一个点击目标：
+ * - 优先返回外层卡片自身（这样点位可稳定落在卡片中心，避开边缘按钮）
+ * - 仅当根节点太小/不可用时，退回内部可点击子节点。
  *
  * @param {Element | null | undefined} target
  * @returns {Element | null}
  */
 function findClickableTarget(target) {
-    return target?.querySelector?.('a[href*="-g-"], button, [role="button"]') || target || null;
+    if (!target) return null;
+    // 最高优先级：命中商品详情 a 标签（你的要求）
+    const goodsAnchor = target.querySelector?.('a[href*="-g-"]');
+    if (goodsAnchor) return goodsAnchor;
+
+    // Temu 卡片里如果混入了知了注入块（zlcrx-inject-object），优先点上层原生商品区：
+    // goodContainer / goodsImage / goodName，避免落到下层插件面板。
+    const upperProductArea = target.querySelector?.(
+        '[data-tooltip^="goodContainer-"], [data-tooltip^="goodsImage-"], [data-tooltip^="goodName-"]'
+    );
+    if (upperProductArea) {
+        const linkLike = upperProductArea.querySelector?.('a[href*="-g-"]');
+        return linkLike || upperProductArea;
+    }
+
+    const rect = target.getBoundingClientRect?.();
+    if (rect && rect.width >= 120 && rect.height >= 60) {
+        return target;
+    }
+    return target.querySelector?.('button, [role="button"]') || target;
 }
 
 /**
- * 在元素内部选一个带随机偏移的点击点位。避开四周 12px 太小的元素，
- * 偏移范围 left=[28%,50%]、top=[30%,52%]，模拟用户指尖落点。
+ * 在元素上半区取随机点位，并尽量避免连续两次落到几乎同一点。
+ * 规则：
+ * - X: 36%~64%（中间偏宽区域）
+ * - Y: 16%~40%（上半区，避开下层注入信息）
+ * - 与上次点位距离不足 22px 时重抽，最多尝试 8 次
  *
  * @param {Element} element
  * @returns {{clientX: number, clientY: number} | null}
@@ -1870,12 +2166,47 @@ function findClickableTarget(target) {
 function getSafeClickPoint(element) {
     const rect = element.getBoundingClientRect();
     if (rect.width < 12 || rect.height < 12) return null;
+    let chosen = null;
 
-    const left = rect.left + rect.width * (0.28 + Math.random() * 0.22);
-    const top = rect.top + rect.height * (0.3 + Math.random() * 0.22);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        const point = {
+            clientX: rect.left + rect.width * (0.36 + Math.random() * 0.28),
+            clientY: rect.top + rect.height * (0.16 + Math.random() * 0.24),
+        };
+
+        if (!lastAutoClickPoint) {
+            chosen = point;
+            break;
+        }
+
+        const dx = point.clientX - lastAutoClickPoint.clientX;
+        const dy = point.clientY - lastAutoClickPoint.clientY;
+        const distance = Math.hypot(dx, dy);
+        if (distance >= 22) {
+            chosen = point;
+            break;
+        }
+
+        // 最后一次兜底，避免没有返回值
+        if (attempt === 7) chosen = point;
+    }
+
+    lastAutoClickPoint = chosen;
+    return chosen;
+}
+
+/**
+ * 按你验证过的控制台探针点位：a 标签宽度 48%，高度 28%。
+ *
+ * @param {Element} element
+ * @returns {{clientX: number, clientY: number} | null}
+ */
+function getProbeStyleAnchorClickPoint(element) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 12 || rect.height < 12) return null;
     return {
-        clientX: left,
-        clientY: top,
+        clientX: rect.left + rect.width * 0.48,
+        clientY: rect.top + rect.height * 0.28,
     };
 }
 
@@ -1940,16 +2271,81 @@ async function dispatchHumanLikeClick(element, point) {
         await sleep(Math.max(8, Math.floor(duration / steps)));
     }
 
+    dispatchPointerEvent(element, 'pointerover', point.clientX, point.clientY, 0);
+    dispatchPointerEvent(element, 'pointerenter', point.clientX, point.clientY, 0);
+    dispatchPointerEvent(element, 'pointermove', point.clientX, point.clientY, 0);
     dispatchMouseEvent(element, 'mouseover', point.clientX, point.clientY);
     dispatchMouseEvent(element, 'mouseenter', point.clientX, point.clientY);
     dispatchMouseEvent(element, 'mousemove', point.clientX, point.clientY);
     await sleep(randomInt(400, 1200));
 
+    dispatchPointerEvent(element, 'pointerdown', point.clientX, point.clientY, 1);
     dispatchMouseEvent(element, 'mousedown', point.clientX, point.clientY);
     await sleep(randomInt(60, 180));
+    dispatchPointerEvent(element, 'pointerup', point.clientX, point.clientY, 0);
     dispatchMouseEvent(element, 'mouseup', point.clientX, point.clientY);
     await sleep(randomInt(30, 110));
+    dispatchPointerEvent(element, 'pointermove', point.clientX, point.clientY, 0);
+    dispatchPointerEvent(element, 'click', point.clientX, point.clientY, 0);
     dispatchMouseEvent(element, 'click', point.clientX, point.clientY);
+}
+
+
+function dispatchProbeStyleAnchorClick(element, point) {
+    const target = document.querySelector('.temu-scraper-pending-target');
+    const a = target?.querySelector('a[href*="-g-"]');
+
+    if (!a) {
+        console.log('[probe] 没找到商品 a');
+        return;
+    }
+    const prevent = (e) => {
+        log('capture-before-prevent', e);
+        e.preventDefault();
+        setTimeout(() => log('after-event-loop', e), 0);
+    };
+    a.addEventListener('click', prevent, true);
+
+    const rect = a.getBoundingClientRect();
+    const x = rect.left + rect.width * 0.48;
+    const y = rect.top + rect.height * 0.28;
+
+    const ev = (type, opts = {}) => {
+        const event = new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            view: window,
+            clientX: x,
+            clientY: y,
+            screenX: window.screenX + x,
+            screenY: window.screenY + y,
+            button: 0,
+            buttons: type === 'mousedown' ? 1 : 0,
+            which: 1,
+            detail: type === 'click' ? 1 : 0,
+            ...opts,
+        });
+        a.dispatchEvent(event);
+    };
+
+    ev('mouseover');
+    ev('mouseenter');
+    ev('mousemove');
+    ev('mousedown');
+    ev('mouseup');
+    ev('click');
+
+    setTimeout(() => {
+        a.removeEventListener('click', prevent, true);
+    }, 500);
+    setTimeout(async () => {
+        // 导航前先清理 collected，新页面的内容脚本拿到的是空的 collected + 更新后的计数
+        await clearCollectedBeforeNavigation();
+        window.open(a.href, '_blank');
+        // 打开新详情页后，清理多余的旧详情页（保留最近 1 个）
+        callRuntime('pruneTemuDetailTabs', {maxCount: 1});
+    }, 600);
 }
 
 /**
@@ -2247,13 +2643,43 @@ function dispatchMouseEvent(element, type, clientX, clientY) {
         screenY: window.screenY + clientY,
         button: 0,
         buttons: type === 'mousedown' ? 1 : 0,
+        which: 1,
+        detail: type === 'click' ? 1 : 0,
+    });
+    element.dispatchEvent(event);
+}
+
+/**
+ * 构造并派发 PointerEvent（左键语义）。部分站点只监听 pointer 事件链。
+ *
+ * @param {Element} element
+ * @param {string} type
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {number} buttons
+ */
+function dispatchPointerEvent(element, type, clientX, clientY, buttons = 0) {
+    if (typeof PointerEvent !== 'function') return;
+    const event = new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        pointerType: 'mouse',
+        isPrimary: true,
+        clientX,
+        clientY,
+        screenX: window.screenX + clientX,
+        screenY: window.screenY + clientY,
+        button: 0,
+        buttons,
     });
     element.dispatchEvent(event);
 }
 
 /**
  * 给"查看更多商品"按钮加高亮样式 + 文字提示，并记录到 `debugPendingLoadMore`
- * 供调试面板"一键加载"按钮使用。保守模式下同时挂 `click` 监听，走
+ * 供控制台或外部消息触发加载时复用。保守模式下同时挂 `click` 监听，走
  * `handleManualLoadMoreClick` 的等待/兜底逻辑。
  *
  * @param {Element | null} button
@@ -2276,7 +2702,6 @@ function highlightLoadMoreButton(button, options = {}) {
         options.autoClick ? '即将自动点击查看更多商品' : '请手动点击查看更多商品'
     );
     button.scrollIntoView({behavior: 'smooth', block: 'center'});
-    renderDebugPanel();
     if (!options.autoClick) {
         button.addEventListener('click', handleManualLoadMoreClick, {once: true});
     }
@@ -2294,12 +2719,17 @@ async function handleManualLoadMoreClick() {
     clearLoadMoreHighlights();
     notify({
         action: 'manualLoadMoreClicked',
-        total: state.collected.length,
+        total: getTotalCollected(state),
         waitSec: state.config.intervalSec,
     });
     const hasGrowth = await waitForListingGrowth(previousCount);
     if (!hasGrowth) {
-        await enterWindControl('手动点击“查看更多商品”后 3 秒内没有新增商品');
+        const fallbackOk = await fallbackToTargetSelectionWhenLoadMoreStalls(
+            '手动点击“查看更多商品”后 3 秒内没有新增商品'
+        );
+        if (!fallbackOk) {
+            await enterWindControl('手动点击“查看更多商品”后 3 秒内没有新增商品');
+        }
         return;
     }
     showToast('列表已继续加载', 'success');
@@ -2314,7 +2744,8 @@ async function handleManualLoadMoreClick() {
  */
 async function handleAutoLoadMoreClick(button, waitSec) {
     if (!button) return;
-    await performLoadMoreClick(button, waitSec, 'autoLoadMoreClicked', '自动点击“查看更多商品”后 3 秒内没有新增商品');
+    logAction('info', `自动点击"查看更多"，等待 ${waitSec}s 后恢复`);
+    await performLoadMoreClick(button, waitSec, 'autoLoadMoreClicked', '自动点击“查看更多商品”后 10 秒内没有新增商品');
 }
 
 /**
@@ -2337,7 +2768,7 @@ function scheduleLoadMoreResume(waitSec) {
 }
 
 /**
- * 调试面板"一键加载更多"按钮的后端逻辑：复用 `debugPendingLoadMore` 里存好的按钮和
+ * 外部触发"一键加载更多"的后端逻辑：复用 `debugPendingLoadMore` 里存好的按钮和
  * waitSec，走 `performLoadMoreClick`。没有待点击按钮时提示用户。
  *
  * @returns {Promise<boolean>} true=成功触发
@@ -2367,6 +2798,7 @@ async function triggerLoadMoreNow() {
  * @returns {Promise<void>}
  */
 async function enterWindControl(reason) {
+    logAction('error', `进入风控暂停：${reason}`, {reason});
     await transitionTo(FSM_STATES.WIND_CONTROL, {
         phase: 'filtering',
         reason,
@@ -2375,6 +2807,62 @@ async function enterWindControl(reason) {
     await patchState({phase: 'filtering'});
     notify({action: 'windControlTriggered', reason});
     showToast(reason || '已进入风控暂停，请人工介入', 'error');
+}
+
+/**
+ * 列表页点击"查看更多"后无新增时的兜底策略：
+ *   1) 不直接停在风控态，先从已采集数据里跑 `runInitialFilter` 挑下一条；
+ *   2) 如果筛出目标，沿用高亮并自动点击进入详情，继续后续流程；
+ *   3) 仅当筛不到目标或不在列表页时，返回 false 让调用方走原风控分支。
+ *
+ * @param {string} reason
+ * @returns {Promise<boolean>} true=已触发列表页兜底继续流程；false=应进入原风控逻辑
+ */
+async function fallbackToTargetSelectionWhenLoadMoreStalls(reason) {
+    // 只在列表页生效；详情页联想区无增长仍按原风控处理。
+    if (hasCurrentProductAnchor()) return false;
+
+    const state = await getState();
+    if (!state.running) return false;
+
+    debugLog('load-more-stall-fallback-start', {
+        reason,
+        total: getTotalCollected(state),
+        queueLen: state.targetQueue.length,
+    });
+    showToast('未检测到新增，尝试从已采集中筛选目标继续', 'warn');
+
+    await runInitialFilter(state);
+
+    const refreshed = await getState();
+    const nextItem = refreshed.targetQueue?.[0];
+    if (!refreshed.running || !nextItem?.goodsId) {
+        debugLog('load-more-stall-fallback-no-target', {
+            reason,
+            running: refreshed.running,
+            queueLen: refreshed.targetQueue?.length || 0,
+        });
+        return false;
+    }
+
+    await transitionTo(FSM_STATES.NAVIGATE_TO_DETAIL, {
+        phase: 'navigating',
+        reason: 'load-more-stall-fallback-click',
+    });
+
+    await performAutoClickV1(nextItem);
+
+    notify({
+        action: 'navigate',
+        goodsId: nextItem.goodsId,
+        queueLen: refreshed.targetQueue.length,
+    });
+
+    debugLog('load-more-stall-fallback-clicked', {
+        reason,
+        goodsId: nextItem.goodsId,
+    });
+    return true;
 }
 
 /**
@@ -2403,7 +2891,7 @@ async function performLoadMoreClick(button, waitSec, notifyAction, windReason) {
     const state = await getState();
     notify({
         action: notifyAction,
-        total: state.collected.length,
+        total: getTotalCollected(state),
         waitSec,
     });
 
@@ -2420,10 +2908,15 @@ async function performLoadMoreClick(button, waitSec, notifyAction, windReason) {
 
     const hasGrowth = await waitForListingGrowth(previousCount);
     if (!hasGrowth) {
-        await enterWindControl(windReason);
+        logAction('error', '点击"查看更多"后无新增，疑似风控');
+        const fallbackOk = await fallbackToTargetSelectionWhenLoadMoreStalls(windReason);
+        if (!fallbackOk) {
+            await enterWindControl(windReason);
+        }
         return false;
     }
 
+    logAction('info', '点击"查看更多"成功，页面新增商品');
     showToast('列表已继续加载', 'success');
     scheduleLoadMoreResume(waitSec);
     return true;
@@ -2630,25 +3123,232 @@ async function rebindPendingHighlight(item, labelText, attempts = 3, delayMs = 1
 }
 
 /**
- * 把元素滚到视口指定的"顶部锚点位置"：先 scrollIntoView 到 top，再用 scrollBy 校正到
- * 视口高度 × `desiredTopRatio` 的位置。默认 0.22（顶部 1/5 处），给
- * 用户足够的上下文空间看到卡片又不至于被遮挡。
+ * 利用联想区"每行固定 itemsPerRow 个卡片"的布局，通过已渲染的前两行量出行高，
+ * 再推算目标行在文档中的 Y 坐标，返回可直接传给 scrollTo 的 scrollY 值。
  *
- * @param {Element | null} element
- * @param {number} [desiredTopRatio]
+ * 原理：
+ *   rowHeight  = 第二行第一张卡的 rectTop − 第一行第一张卡的 rectTop
+ *   targetDocY = 第一行第一张卡的 docTop + targetRowIndex × rowHeight
+ *   scrollY    = targetDocY − viewport × desiredTopRatio
+ *
+ * @param {number} domIndex       目标卡片在联想区卡片列表中的索引
+ * @param {number} desiredTopRatio
+ * @param {number} [itemsPerRow=5]
+ * @returns {number | null} 目标 scrollY；行高无法计算时返回 null
  */
+function estimateRelatedRowScrollY(domIndex, desiredTopRatio, itemsPerRow = 5) {
+    const relatedRoot = getRelatedItemsRoot();
+    if (!relatedRoot) return null;
+
+    const allCards = findProductCards(relatedRoot);
+    if (allCards.length < itemsPerRow + 1) return null;
+
+    // 前两行首张卡必须都已渲染才能量出行高
+    const rowACard = allCards[0];
+    const rowBCard = allCards[itemsPerRow];
+    if (!rowACard || !rowBCard) return null;
+
+    const rectA = rowACard.getBoundingClientRect();
+    const rectB = rowBCard.getBoundingClientRect();
+
+    if (rectA.height === 0 || rectB.height === 0) return null;
+
+    const rowHeight = rectB.top - rectA.top;
+    if (rowHeight <= 10) return null; // 行高不合理
+
+    const targetRowIndex = Math.floor(domIndex / itemsPerRow);
+    const rowADocTop = rectA.top + window.scrollY;
+    const targetRowDocTop = rowADocTop + targetRowIndex * rowHeight;
+    const scrollY = Math.max(0, targetRowDocTop - Math.round(window.innerHeight * desiredTopRatio));
+
+    logAction('info', '行高计算完成', {
+        rowHeight: Math.round(rowHeight),
+        targetRowIndex,
+        rowADocTop: Math.round(rowADocTop),
+        targetRowDocTop: Math.round(targetRowDocTop),
+        scrollY: Math.round(scrollY),
+    });
+
+    return scrollY;
+}
+
+/**
+ * 将元素滚动到视口指定锚点位置，处理懒加载场景。执行顺序：
+ *
+ *   阶段一（仅 related 且有 domIndex）：
+ *     通过行高计算精确跳转，等 150ms 检查渲染状态。
+ *
+ *   阶段二：
+ *     高速向下扫描（600px / stepMs），直到元素渲染或到达页面底部。
+ *
+ * @param {Element} element
+ * @param {number} [desiredTopRatio=0.22]
+ * @param {number} [stepMs=50]      阶段二每步等待时间（ms）
+ * @param {number} [timeoutMs=8000] 阶段二总超时（ms）
+ * @param {{source?: string, domIndex?: number} | null} [item=null]
+ * @returns {Promise<boolean>}
+ */
+async function scrollToRenderedAnchor(element, desiredTopRatio = 0.22, stepMs = 50, timeoutMs = 8000, item = null) {
+    if (!element) return false;
+
+    // 元素已渲染，直接定位
+    const rectNow = element.getBoundingClientRect();
+    if (rectNow.width > 0 && rectNow.height > 0) {
+        logAction('info', '元素已渲染，直接定位', {
+            scrollY: window.scrollY,
+            rectTop: Math.round(rectNow.top),
+            width: Math.round(rectNow.width),
+            height: Math.round(rectNow.height),
+        });
+        scrollElementToViewportAnchor(element, desiredTopRatio);
+        return true;
+    }
+
+    // ── 阶段一：行高计算直接跳转（仅 related 且有 domIndex）─────────
+    if (item?.source === 'related' && Number.isInteger(item?.domIndex)) {
+        const targetScrollY = estimateRelatedRowScrollY(item.domIndex, desiredTopRatio);
+        if (targetScrollY !== null) {
+            logAction('info', `阶段一：行高定位，跳转至 scrollY=${Math.round(targetScrollY)}`, {
+                domIndex: item.domIndex,
+                targetScrollY: Math.round(targetScrollY),
+            });
+            window.scrollTo({top: targetScrollY, behavior: 'auto'});
+            await sleep(150);
+            const rectAfterJump = element.getBoundingClientRect();
+            if (rectAfterJump.width > 0 && rectAfterJump.height > 0) {
+                logAction('info', '阶段一：跳转后元素已渲染，执行锚点定位', {
+                    scrollY: Math.round(window.scrollY),
+                    rectTop: Math.round(rectAfterJump.top),
+                });
+                scrollElementToViewportAnchor(element, desiredTopRatio);
+                return true;
+            }
+            logAction('info', '阶段一：跳转后仍未渲染，进入阶段二扫描', {
+                scrollY: Math.round(window.scrollY),
+            });
+        } else {
+            logAction('info', '阶段一：行高无法计算（前两行未渲染），直接进入阶段二', {
+                domIndex: item.domIndex,
+                scrollY: Math.round(window.scrollY),
+            });
+        }
+    }
+
+    // ── 阶段二：高速向下扫描 600px / stepMs ──────────────────────────
+    logAction('info', '阶段二：开始高速扫描', {
+        scrollY: Math.round(window.scrollY),
+        pageHeight: document.documentElement.scrollHeight,
+    });
+
+    const startedAt = Date.now();
+    let step = 0;
+
+    while (Date.now() - startedAt < timeoutMs) {
+        const before = window.scrollY;
+        window.scrollBy({top: 600, left: 0, behavior: 'auto'});
+        await sleep(stepMs);
+        step += 1;
+
+        const rect = element.getBoundingClientRect();
+
+        if (step % 20 === 0) {
+            logAction('info', `阶段二：第 ${step} 步 scrollY=${Math.round(window.scrollY)} 元素宽=${Math.round(rect.width)} 高=${Math.round(rect.height)}`, {
+                step,
+                scrollY: Math.round(window.scrollY),
+                elapsed: Date.now() - startedAt,
+            });
+        }
+
+        if (rect.width > 0 && rect.height > 0) {
+            logAction('info', `阶段二：第 ${step} 步元素已渲染，执行锚点定位`, {
+                step, scrollY: Math.round(window.scrollY), elapsed: Date.now() - startedAt,
+            });
+            scrollElementToViewportAnchor(element, desiredTopRatio);
+            return true;
+        }
+
+        if (window.scrollY === before) {
+            logAction('warn', `阶段二：已到页面底部仍未渲染，跳回顶部进入阶段三（水合扫描）`, {
+                step, scrollY: Math.round(window.scrollY), elapsed: Date.now() - startedAt,
+            });
+            break;
+        }
+    }
+
+    // ── 阶段三：跳顶 + 逐行水合扫描（慢速，给 Temu 每行渲染时间）───
+    window.scrollTo({top: 0, behavior: 'auto'});
+    await sleep(300);
+
+    logAction('info', '阶段三：从顶部开始水合扫描', {
+        scrollY: Math.round(window.scrollY),
+        pageHeight: document.documentElement.scrollHeight,
+    });
+
+    const phase3StartedAt = Date.now();
+    const PHASE3_TIMEOUT_MS = 800000;
+    const PHASE3_STEP_PX = 400;
+    const PHASE3_STEP_MS = 300;
+    let step3 = 0;
+
+    while (Date.now() - phase3StartedAt < PHASE3_TIMEOUT_MS) {
+        const before3 = window.scrollY;
+        window.scrollBy({top: PHASE3_STEP_PX, left: 0, behavior: 'auto'});
+        await sleep(PHASE3_STEP_MS);
+        step3 += 1;
+
+        const rect = element.getBoundingClientRect();
+
+        if (step3 % 10 === 0) {
+            logAction('info', `阶段三：第 ${step3} 步 scrollY=${Math.round(window.scrollY)} 元素高=${Math.round(rect.height)}`, {
+                step: step3, scrollY: Math.round(window.scrollY), elapsed: Date.now() - phase3StartedAt,
+            });
+        }
+
+        if (rect.width > 0 && rect.height > 0) {
+            logAction('info', `阶段三：第 ${step3} 步元素已渲染，执行锚点定位`, {
+                step: step3, scrollY: Math.round(window.scrollY), elapsed: Date.now() - phase3StartedAt,
+            });
+            scrollElementToViewportAnchor(element, desiredTopRatio);
+            return true;
+        }
+
+        if (window.scrollY === before3) {
+            logAction('warn', '阶段三：已到页面底部仍未渲染，放弃', {
+                step: step3, elapsed: Date.now() - phase3StartedAt,
+            });
+            break;
+        }
+    }
+
+    logAction('error', `scrollToRenderedAnchor 全部阶段结束，元素未渲染`, {
+        phase2Steps: step, phase3Steps: step3,
+        totalElapsed: Date.now() - startedAt,
+    });
+    return false;
+}
+
 function scrollElementToViewportAnchor(element, desiredTopRatio = 0.22) {
     if (!element) return;
 
     element.scrollIntoView({behavior: 'auto', block: 'start'});
 
     const rect = element.getBoundingClientRect();
+
+    // 宽高为 0 说明元素尚未渲染（懒加载未完成），跳过校正避免错误滚动
+    if (rect.width === 0 && rect.height === 0) return;
+
     const viewport = window.innerHeight || 800;
     const desiredTop = viewport * desiredTopRatio;
     const delta = rect.top - desiredTop;
 
     if (Math.abs(delta) >= 2) {
-        window.scrollBy({top: delta, behavior: 'auto'});
+        // 防止 scrollY + delta < 0（页面顶部附近时无法再往上滚）
+        const newScrollY = window.scrollY + delta;
+        if (newScrollY < 0) {
+            window.scrollTo({top: 0, behavior: 'auto'});
+        } else {
+            window.scrollBy({top: delta, behavior: 'auto'});
+        }
     }
 }
 
@@ -2822,12 +3522,12 @@ function ensureHighlightStyle() {
     .temu-scraper-pending-target {
       position: relative !important;
       isolation: isolate !important;
-      outline: 4px solid #ff6a00 !important;
+      outline: 4px solid #b98546 !important;
       outline-offset: 2px !important;
-      box-shadow: 0 0 0 8px rgba(255, 106, 0, 0.28), 0 18px 38px rgba(255, 106, 0, 0.18) !important;
+      box-shadow: 0 0 0 8px rgba(185, 133, 70, 0.24), 0 16px 32px rgba(47, 72, 88, 0.16) !important;
       border-radius: 12px !important;
       animation: temu-scraper-pulse 1.15s ease-in-out infinite;
-      background: rgba(255, 106, 0, 0.10) !important;
+      background: rgba(185, 133, 70, 0.12) !important;
       z-index: 999 !important;
     }
     .temu-scraper-pending-target > * {
@@ -2839,7 +3539,7 @@ function ensureHighlightStyle() {
       position: absolute;
       inset: 0;
       border-radius: inherit;
-      background: linear-gradient(180deg, rgba(255, 106, 0, 0.16), rgba(255, 106, 0, 0.06));
+      background: linear-gradient(180deg, rgba(185, 133, 70, 0.16), rgba(47, 72, 88, 0.08));
       pointer-events: none;
       z-index: 0;
     }
@@ -2850,13 +3550,13 @@ function ensureHighlightStyle() {
       top: 10px;
       padding: 6px 10px;
       border-radius: 999px;
-      background: #ff6a00;
+      background: #2f4858;
       color: #fff;
       font-size: 12px;
       font-weight: 700;
       line-height: 1;
       white-space: nowrap;
-      box-shadow: 0 6px 18px rgba(255, 106, 0, 0.28);
+      box-shadow: 0 6px 18px rgba(47, 72, 88, 0.24);
       z-index: 3;
       pointer-events: none;
     }
@@ -2865,8 +3565,8 @@ function ensureHighlightStyle() {
     }
     .temu-scraper-load-more-target {
       position: relative !important;
-      outline: 3px dashed #0ea5e9 !important;
-      box-shadow: 0 0 0 6px rgba(14, 165, 233, 0.18) !important;
+      outline: 3px dashed #2f4858 !important;
+      box-shadow: 0 0 0 6px rgba(47, 72, 88, 0.18) !important;
       border-radius: 12px !important;
       animation: temu-scraper-pulse-load-more 1.2s ease-in-out infinite;
       z-index: 1;
@@ -2879,20 +3579,20 @@ function ensureHighlightStyle() {
       transform: translate(-50%, -100%);
       padding: 6px 10px;
       border-radius: 999px;
-      background: #0ea5e9;
+      background: #2f4858;
       color: #fff;
       font-size: 12px;
       font-weight: 700;
       line-height: 1;
       white-space: nowrap;
-      box-shadow: 0 6px 18px rgba(14, 165, 233, 0.28);
+      box-shadow: 0 6px 18px rgba(47, 72, 88, 0.24);
       z-index: 2;
       pointer-events: none;
     }
     .temu-scraper-related-area-target {
       position: relative !important;
-      outline: 3px dashed #8b5cf6 !important;
-      box-shadow: 0 0 0 8px rgba(139, 92, 246, 0.14) !important;
+      outline: 3px dashed #7a6750 !important;
+      box-shadow: 0 0 0 8px rgba(122, 103, 80, 0.16) !important;
       border-radius: 16px !important;
       animation: temu-scraper-pulse-related 1.3s ease-in-out infinite;
       z-index: 1;
@@ -2904,12 +3604,12 @@ function ensureHighlightStyle() {
       top: 16px;
       padding: 6px 10px;
       border-radius: 999px;
-      background: #8b5cf6;
+      background: #7a6750;
       color: #fff;
       font-size: 12px;
       font-weight: 700;
       line-height: 1;
-      box-shadow: 0 6px 18px rgba(139, 92, 246, 0.26);
+      box-shadow: 0 6px 18px rgba(122, 103, 80, 0.22);
       z-index: 2;
       pointer-events: none;
     }
@@ -2920,13 +3620,14 @@ function ensureHighlightStyle() {
       transform: translate(-50%, 14px);
       padding: 10px 14px;
       border-radius: 999px;
-      background: rgba(15, 23, 42, 0.94);
+      background: rgba(47, 72, 88, 0.95);
       color: #fff;
       z-index: 2147483647;
       opacity: 0;
       transition: opacity 0.22s ease, transform 0.22s ease;
-      font: 12px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.24);
+      font: 12px/1.4 "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      box-shadow: 0 12px 28px rgba(36, 57, 70, 0.24);
+      border: 1px solid rgba(229, 221, 208, 0.32);
     }
     .temu-scraper-toast.show {
       opacity: 1;
@@ -2939,16 +3640,16 @@ function ensureHighlightStyle() {
       background: rgba(21, 128, 61, 0.94);
     }
     @keyframes temu-scraper-pulse {
-      0%, 100% { box-shadow: 0 0 0 8px rgba(255, 106, 0, 0.28), 0 18px 38px rgba(255, 106, 0, 0.18); }
-      50% { box-shadow: 0 0 0 12px rgba(255, 106, 0, 0.16), 0 20px 44px rgba(255, 106, 0, 0.12); }
+      0%, 100% { box-shadow: 0 0 0 8px rgba(185, 133, 70, 0.24), 0 16px 32px rgba(47, 72, 88, 0.16); }
+      50% { box-shadow: 0 0 0 12px rgba(185, 133, 70, 0.14), 0 18px 36px rgba(47, 72, 88, 0.10); }
     }
     @keyframes temu-scraper-pulse-load-more {
-      0%, 100% { box-shadow: 0 0 0 6px rgba(14, 165, 233, 0.18); }
-      50% { box-shadow: 0 0 0 10px rgba(14, 165, 233, 0.1); }
+      0%, 100% { box-shadow: 0 0 0 6px rgba(47, 72, 88, 0.18); }
+      50% { box-shadow: 0 0 0 10px rgba(47, 72, 88, 0.10); }
     }
     @keyframes temu-scraper-pulse-related {
-      0%, 100% { box-shadow: 0 0 0 8px rgba(139, 92, 246, 0.14); }
-      50% { box-shadow: 0 0 0 14px rgba(139, 92, 246, 0.08); }
+      0%, 100% { box-shadow: 0 0 0 8px rgba(122, 103, 80, 0.16); }
+      50% { box-shadow: 0 0 0 14px rgba(122, 103, 80, 0.08); }
     }
   `;
     document.documentElement.appendChild(style);
@@ -3048,7 +3749,7 @@ function restorePendingHighlight(item, labelText) {
 }
 
 /**
- * 清掉"查看更多"按钮高亮 + 取消延时 resume + 清空调试面板里的 pending 按钮记录。
+ * 清掉"查看更多"按钮高亮 + 取消延时 resume + 清空 pending 按钮记录。
  * 每次真的点了按钮、或者换目标前都要调一次，避免按钮上脉冲样式残留。
  */
 function clearLoadMoreHighlights() {
@@ -3062,7 +3763,6 @@ function clearLoadMoreHighlights() {
         el.classList.remove('temu-scraper-load-more-target');
         el.removeAttribute('data-temu-load-more-label');
     });
-    renderDebugPanel();
 }
 
 /**
@@ -3112,16 +3812,6 @@ function extractItemFromCard(card, mode) {
                 error,
             };
         });
-
-        debugLog('card-object-diagnostics', {
-            goodsId,
-            source: mode,
-            objectCount: objectNodes.length,
-            cardInnerHasListingTime: String(card.innerText || '').includes('上架时间'),
-            cardTextContentHasListingTime: String(card.textContent || '').includes('上架时间'),
-            cardOuterHtmlHasListingTime: String(card.outerHTML || '').includes('上架时间'),
-            objectDiagnostics,
-        });
     }
 
     const leaves = Array.from(card.querySelectorAll('span, div, p'))
@@ -3159,7 +3849,7 @@ function extractItemFromCard(card, mode) {
 
 /**
  * 详情页版本的字段抓取。思路：h1 拿标题；整页所有叶子 text 聚合为 `unique` 池，
- * 再复用同一套 `extractSales/Star/Price/Reviews` 规则。写入 CSV 时和列表字段并排存档。
+ * 再复用同一套 `extractSales/Star/Price/Reviews` 规则。完整字段会通过上传队列同步到后端。
  *
  * @returns {{fullTitle: string, price: string, sales: string, stars: string, reviews: string}}
  */
@@ -3174,12 +3864,14 @@ function scrapeDetailFields(goodsId = '') {
 
     const unique = Array.from(new Set(leaves));
 
+    const salesText = unique.find((text) => /已售/.test(text)) || '';
+    const stars = extractStar(unique);
     return {
         fullTitle: title,
         price: extractPrice(unique),
-        sales: extractSales(unique.find((text) => /已售/.test(text)) || ''),
-        stars: extractStar(unique),
-        reviews: extractReviews(unique, extractStar(unique), extractSales(unique.find((text) => /已售/.test(text)) || '')),
+        sales: extractSales(salesText),
+        stars,
+        reviews: extractReviews(unique, stars, extractSales(salesText)),
         listingTime: extractInjectedListingTime(document.body, goodsId) ||
             extractListingTime(unique, normalizeText(document.body?.innerText || '')),
     };
@@ -3225,7 +3917,7 @@ function scrapeDetailRawBlock() {
 
 /**
  * 文本规范化：把所有空白（包括换行、制表符、多余空格）压成单个空格并 trim。
- * 贯穿整个抓取链路，所有字段写入 state/CSV 前都需要走一遍以获得稳定格式。
+ * 贯穿整个抓取链路，字段入库或参与筛选前都需要走一遍以获得稳定格式。
  *
  * @param {unknown} text
  * @returns {string}
@@ -3444,7 +4136,41 @@ function extractName(texts, context = {}) {
  * @param {number} [limit]
  * @returns {T[]}
  */
-function selectPriorityItems(items, limit = 1) {
+/**
+ * 从名称中提取 2-gram 字符集合，用于多样性重叠计算。
+ * 例："人造吊花" → Set{"人造", "造吊", "吊花"}
+ * @param {string} name
+ * @returns {Set<string>}
+ */
+function extractNameBigrams(name) {
+    // 只保留 CJK 汉字，过滤数字/字母/符号，避免噪声 bigram 拉低辨别力
+    const s = (name || '').replace(/[^一-鿿]/g, '');
+    const grams = new Set();
+    for (let i = 0; i < s.length - 1; i++) {
+        grams.add(s.slice(i, i + 2));
+    }
+    return grams;
+}
+
+/**
+ * 计算候选名称与最近处理窗口的 2-gram 重叠数。
+ * @param {string} name
+ * @param {Set<string>} recentBigrams
+ * @returns {number}
+ */
+function calcOverlap(name, recentBigrams) {
+    if (!recentBigrams.size) return 0;
+    const nameBigrams = extractNameBigrams(name);
+    if (!nameBigrams.size) return 0;
+    let count = 0;
+    for (const gram of nameBigrams) {
+        if (recentBigrams.has(gram)) count++;
+    }
+    // 返回比例（0.0 ~ 1.0），而非绝对数，避免长名称因字多而被误杀
+    return count / nameBigrams.size;
+}
+
+function selectPriorityItems(items, limit = 1, recentNames = []) {
     if (!Array.isArray(items) || items.length === 0) return [];
 
     const filteredItems = items.filter(
@@ -3452,29 +4178,88 @@ function selectPriorityItems(items, limit = 1) {
     );
     const candidateItems = filteredItems.length > 0 ? filteredItems : items;
 
-    const priorityOne = candidateItems
-        .filter((item) => !normalizeStar(item.starRating))
-        .sort(compareBySalesDesc);
-
-    if (priorityOne.length > 0) {
-        return priorityOne.slice(0, limit);
+    // 构建最近处理名称的 2-gram 合并集合
+    const recentBigrams = new Set();
+    for (const n of recentNames) {
+        for (const gram of extractNameBigrams(n)) recentBigrams.add(gram);
     }
 
-    return [...candidateItems]
-        .sort(compareBySalesDescThenReviewsAsc)
-        .slice(0, limit);
+    // 按多样性分组：低重叠（优先）vs 高重叠（降权）
+    const diverse = [];
+    const penalized = [];
+    for (const item of candidateItems) {
+        const name = item.name || item.fullTitle || '';
+        const overlap = calcOverlap(name, recentBigrams);
+        if (overlap >= DIVERSITY_OVERLAP_THRESHOLD) {
+            penalized.push({item, overlap});
+        } else {
+            diverse.push({item, overlap});
+        }
+    }
+
+    const hasDiversity = recentNames.length > 0;
+    logAction('info', `[selectPriorityItems] 候选 ${candidateItems.length} 条，低重叠(优先)=${diverse.length}，高重叠(降权)=${penalized.length}，recentWindow=${recentNames.length}`, {
+        total: candidateItems.length,
+        diverseCount: diverse.length,
+        penalizedCount: penalized.length,
+        recentWindowSize: recentNames.length,
+        recentNames: recentNames.slice(-3), // 只打最近 3 条避免日志过长
+        threshold: DIVERSITY_OVERLAP_THRESHOLD,
+    });
+
+    // 在低重叠组里用原有优先级逻辑选取
+    const pickFrom = (pool) => {
+        const poolItems = pool.map((e) => e.item);
+        const priorityOne = poolItems
+            .filter((item) => !normalizeStar(item.starRating))
+            .sort(compareBySalesDesc);
+        if (priorityOne.length > 0) return priorityOne.slice(0, limit);
+        return [...poolItems].sort(compareBySalesDescThenReviewsAsc).slice(0, limit);
+    };
+
+    if (diverse.length > 0) {
+        const result = pickFrom(diverse);
+        if (result.length > 0) {
+            const chosen = result[0];
+            const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
+            logAction('info', `[selectPriorityItems] 命中低重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {
+                goodsId: chosen.goodsId,
+                overlap,
+                group: 'diverse',
+            });
+            return result;
+        }
+    }
+
+    // 低重叠组为空，降级到高重叠组
+    if (penalized.length > 0) {
+        const result = pickFrom(penalized);
+        if (result.length > 0) {
+            const chosen = result[0];
+            const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
+            logAction('warn', `[selectPriorityItems] 低重叠组为空，降级使用高重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {
+                goodsId: chosen.goodsId,
+                overlap,
+                group: 'penalized',
+            });
+            return result;
+        }
+    }
+
+    return [];
 }
 
 /**
- * 判断商品标题里是否含有"排除词"（EXCLUDED_TITLE_KEYWORDS，如平替/二手等）。命中即在
- * `selectPriorityItems` 里被过滤掉，除非所有候选都被筛掉（此时回退不过滤）。
+ * 判断商品标题里是否含有"排除词"。词列表由 `excludedTitleKeywords` 提供，
+ * 启动时从后端 GET /api/config/exclusion-keywords 拉取，拉取失败则回退到本地兜底。
+ * 命中即在 `selectPriorityItems` 里被过滤掉，除非所有候选都被筛掉（此时回退不过滤）。
  * @param {{fullTitle?: string, name?: string}} item
  * @returns {boolean}
  */
 function hasExcludedTitleKeyword(item) {
     const title = normalizeText(item?.fullTitle || item?.name || '');
     if (!title) return false;
-    return EXCLUDED_TITLE_KEYWORDS.some((keyword) => title.includes(keyword));
+    return excludedTitleKeywords.some((keyword) => title.includes(keyword));
 }
 
 /**
@@ -3484,6 +4269,7 @@ function hasExcludedTitleKeyword(item) {
  * @returns {boolean}
  */
 function hasExcludedBadgeKeyword(item) {
+    if (item?.hasLocalWarehouse) return true;
     const haystack = normalizeText([
         item?.name,
         item?.fullTitle,
@@ -3493,6 +4279,186 @@ function hasExcludedBadgeKeyword(item) {
     if (!haystack) return false;
     return haystack.includes('本地仓');
 }
+
+/**
+ * 从给定卡片列表中移除含"本地仓"文案的节点。两种流的删除节点层级不同：
+ *   - 列表主区（removeParent=false）：findProductCards 找到的即是网格子项，直接删；
+ *   - 详情联想区（removeParent=true）：卡片外还有一层包装容器，需删 parentElement。
+ *
+ * @param {Element[]} cards
+ * @param {boolean} removeParent 是否删除卡片的父节点
+ * @returns {number} 移除数量
+ */
+function removeLocalWarehouseFromCards(cards, removeParent) {
+    console.log('removeLocalWarehouseFromCards is {},removeParent is {}', cards, removeParent);
+    let removed = 0;
+    for (const card of cards) {
+        const text = normalizeText(card?.innerText || card?.textContent || '');
+        if (!text.includes('本地仓')) continue;
+        const nodeToRemove = card.parentElement.parentElement.parentElement;
+        console.log('removeParent true card is {}', nodeToRemove);
+        nodeToRemove.remove();
+        removed += 1;
+    }
+    if (removed > 0) {
+        debugLog('remove-local-warehouse-cards', {removed});
+        triggerRelayout();
+    }
+    return removed;
+}
+
+/**
+ * 遍历所有商品流，调用各流自己的 removeLocalWarehouse 策略。
+ * 供消息处理器（applyLocalWarehouseFilter）主动触发时使用。
+ *
+ * @returns {number} 总移除数量
+ */
+function removeLocalWarehouseProductCards() {
+    return enumerateProductStreams().reduce((total, stream) => {
+        return total + stream.removeLocalWarehouse();
+    }, 0);
+}
+
+/**
+ * 按商品列表容器的直接子元素删除本地仓商品。
+ *
+ * @returns {number}
+ */
+function removeLocalWarehouseGridItems() {
+    const grid = document.querySelector('#main_scale > div.baseContent > div > div:nth-child(2) > div._3b5Mfoua.js-goods-list > div._29dBm1gx.autoFitGoodsList');
+    if (!grid) return 0;
+
+    let removed = 0;
+    Array.from(grid.children).forEach((item) => {
+        const text = normalizeText(item?.innerText || item?.textContent || '');
+        if (!text.includes('本地仓')) return;
+        item.remove();
+        removed += 1;
+    });
+
+    return removed;
+}
+
+/**
+ * 删除商品 DOM 节点后，触发 Temu 商品列表重新计算布局。
+ * resize + scroll + 微量滚动三连发，强制 Temu 重绘网格。
+ *
+ * @returns {void}
+ */
+function triggerRelayout() {
+    requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('resize'));
+        document.dispatchEvent(new Event('scroll'));
+        try {
+            window.scrollBy({top: 1, behavior: 'auto'});
+            window.scrollBy({top: -1, behavior: 'auto'});
+        } catch (_) {
+        }
+    });
+}
+
+/**
+ * 当前页面商品流 DOM 过多时，按选品优先级保留更可能后续点击的商品，删除低优先级元素。
+ * 会同时覆盖列表主流与详情页联想流；列表页优先删除主网格的外层 item，详情页则删除对应商品卡节点。
+ * 删除掉的 goodsId 会写入 processedIds，避免后续从 collected 中重新选到一个已被删 DOM 的商品。
+ *
+ * @param {ReturnType<typeof defaultState>} state
+ * @returns {Promise<{removed: number, removedGoodsIds: string[]}>}
+ */
+async function pruneProductDomIfNeeded(state) {
+    const entriesByGoodsId = new Map();
+
+    // 1) 主列表优先用网格直接子元素，保证删除的是用户指定的"更外层"节点。
+    const mainGrid = document.querySelector('#main_scale > div.baseContent > div > div:nth-child(2) > div._3b5Mfoua.js-goods-list > div._29dBm1gx.autoFitGoodsList');
+    if (mainGrid) {
+        Array.from(mainGrid.children).forEach((node, domIndex) => {
+            const card = findProductCards(node)[0] || node;
+            const item = extractItemFromCard(card, 'listing');
+            if (!item?.goodsId) return;
+            entriesByGoodsId.set(item.goodsId, {
+                node,
+                item: {...item, domIndex, sourceTag: 'listing'},
+            });
+        });
+    }
+
+    // 2) 补齐所有商品流（含详情页 related）；仅在主网格没有该 goodsId 时使用卡片节点。
+    // related 流：findProductCards 找到的是内层内容节点，#goodsRecommend 外层还有一个包装 div，
+    // 删除时需移除包装层，否则留下空壳占位。
+    const streams = enumerateProductStreams();
+    streams.forEach((stream) => {
+        const cards = stream.getCards();
+        cards.forEach((card, domIndex) => {
+            const item = extractItemFromCard(card, stream.sourceTag);
+            if (!item?.goodsId || entriesByGoodsId.has(item.goodsId)) return;
+            const nodeToRemove = stream.id === 'related' ? (card.parentElement.parentElement.parentElement || card) : card;
+            entriesByGoodsId.set(item.goodsId, {
+                node: nodeToRemove,
+                item: {...item, domIndex, sourceTag: stream.sourceTag},
+            });
+        });
+    });
+
+    const entries = Array.from(entriesByGoodsId.values())
+        .filter((entry) => entry?.node?.isConnected && entry?.item?.goodsId);
+
+    if (entries.length <= DOM_PRUNE_CARD_THRESHOLD) {
+        return {removed: 0, removedGoodsIds: []};
+    }
+
+    const protectedIds = new Set((state.targetQueue || []).map((item) => item.goodsId).filter(Boolean));
+    const keepIds = new Set(
+        rankItemsForDomPrune(entries.map((entry) => entry.item))
+            .slice(0, DOM_PRUNE_KEEP_COUNT)
+            .map((item) => item.goodsId)
+    );
+    protectedIds.forEach((goodsId) => keepIds.add(goodsId));
+
+    const removedGoodsIds = [];
+    for (const entry of entries) {
+        if (keepIds.has(entry.item.goodsId)) continue;
+        entry.node.remove();
+        removedGoodsIds.push(entry.item.goodsId);
+    }
+
+    if (!removedGoodsIds.length) {
+        return {removed: 0, removedGoodsIds: []};
+    }
+
+    const processedIds = new Set([...(state.processedIds || []), ...removedGoodsIds]);
+    await patchState({processedIds: Array.from(processedIds)});
+
+    triggerRelayout();
+
+    return {
+        removed: removedGoodsIds.length,
+        removedGoodsIds,
+    };
+}
+
+/**
+ * DOM 裁剪排序：非排除词 > 排除词；无评分新品优先；销量高优先；有评分时评价少优先。
+ *
+ * @param {Array<{goodsId?: string, starRating?: string, sales?: string, detailSales?: string, reviewCount?: number}>} items
+ * @returns {Array}
+ */
+function rankItemsForDomPrune(items) {
+    return [...items].sort((a, b) => {
+        const excludedA = hasExcludedTitleKeyword(a) || hasExcludedBadgeKeyword(a);
+        const excludedB = hasExcludedTitleKeyword(b) || hasExcludedBadgeKeyword(b);
+        if (excludedA !== excludedB) return excludedA ? 1 : -1;
+
+        const hasStarA = Boolean(normalizeStar(a.starRating));
+        const hasStarB = Boolean(normalizeStar(b.starRating));
+        if (hasStarA !== hasStarB) return hasStarA ? 1 : -1;
+
+        const salesDelta = getSalesNum(b) - getSalesNum(a);
+        if (salesDelta !== 0) return salesDelta;
+
+        return parseReviewNum(a.reviewCount) - parseReviewNum(b.reviewCount);
+    });
+}
+
 
 /**
  * 把评分值规范成字符串并去除首尾空白。空值返回空串，是 `selectPriorityItems` 里判断
@@ -3573,7 +4539,45 @@ function parseSalesNum(value) {
 }
 
 /**
- * 把一批新抓到的商品合并进 `state.collected` 并落库（chrome.storage.local）：
+ * 只保留采集流程后续筛选/点击需要的轻量字段。完整商品数据已经走上传队列发给后端，
+ * 不再把 rawHtml/rawText 这类大字段长期保存到插件本地状态。
+ *
+ * @param {Record<string, unknown>} item
+ * @returns {Record<string, unknown>}
+ */
+function compactCollectedItemForWorkflow(item) {
+    const textForBadge = normalizeText([
+        item?.name,
+        item?.fullTitle,
+        item?.rawText,
+    ].filter(Boolean).join(' '));
+    return {
+        goodsId: item.goodsId,
+        name: item.name || '',
+        fullTitle: item.fullTitle || '',
+        link: item.link || '',
+        price: item.price || '',
+        detailPrice: item.detailPrice || '',
+        sales: item.sales || '',
+        detailSales: item.detailSales || '',
+        salesNum: item.salesNum || parseSalesNum(item.sales || item.detailSales || ''),
+        starRating: item.starRating || '',
+        detailStars: item.detailStars || '',
+        reviewCount: item.reviewCount || '',
+        detailReviews: item.detailReviews || '',
+        listingTime: item.listingTime || '',
+        source: item.source || '',
+        sourceRootId: item.sourceRootId || '',
+        domIndex: item.domIndex,
+        detailScraped: Boolean(item.detailScraped),
+        scrapedAt: item.scrapedAt || '',
+        detailAt: item.detailAt || '',
+        hasLocalWarehouse: item.hasLocalWarehouse || textForBadge.includes('本地仓'),
+    };
+}
+
+/**
+ * 把一批新抓到的商品合并进流程用的 `state.collected`：
  *   - 以 `goodsId` 作为主键，旧条目与新条目按字段合并（后者覆盖前者，但空值不会覆盖已有值）；
  *   - 新插入的条目会补上 `scrapedAt` 时间戳；
  *   - 同步补算 `salesNum`，便于后续排序；
@@ -3587,42 +4591,86 @@ async function upsertItems(items) {
     if (!items.length) return 0;
     const state = await getState();
     const byId = new Map(state.collected.map((item) => [item.goodsId, item]));
+    // seenIds 包含"已上传清空"的历史 goodsId，用于跳过已见商品的全局去重
+    const seenIds = new Set(state.seenGoodsIds || []);
     let inserted = 0;
+    let skippedBySeen = 0;
+    let mergedCount = 0;
+    const newItems = [];    // 第三类：真正新增，进上传队列
+    const mergedNames = []; // 第一类：byId 合并（已在 collected 里）
+    const skippedNames = [];// 第二类：seenIds 跳过（历史已上传）
 
     for (const item of items) {
         if (!item.goodsId) continue;
+        const alreadySeen = seenIds.has(item.goodsId);
         const prev = byId.get(item.goodsId);
+
+        // 第二类：seenIds 命中且不在当前 collected → 历史已上传，直接跳过
+        if (alreadySeen && !prev) {
+            skippedBySeen += 1;
+            skippedNames.push({goodsId: item.goodsId, name: item.name || item.fullTitle || ''});
+            continue;
+        }
+
         const merged = {
             ...prev,
             ...Object.fromEntries(Object.entries(item).filter(([, value]) => value !== '' && value !== undefined)),
         };
 
-        if (!prev) {
+        if (!prev && !alreadySeen) {
+            // 第三类：全新商品
             inserted += 1;
             if (!merged.scrapedAt) merged.scrapedAt = nowText();
+            newItems.push(item);
+        } else {
+            // 第一类：已在 collected 里，只做字段合并
+            mergedCount += 1;
+            mergedNames.push({goodsId: item.goodsId, name: item.name || item.fullTitle || ''});
         }
 
         if (!merged.salesNum) merged.salesNum = parseSalesNum(merged.sales || merged.detailSales || '');
-        byId.set(item.goodsId, merged);
+        byId.set(item.goodsId, compactCollectedItemForWorkflow(merged));
     }
 
     const collected = Array.from(byId.values());
+    const newTotal = getTotalCollected({...state, collected});
+    logAction('info', `[upsertItems] 新增=${inserted} 合并=${mergedCount} 历史跳过=${skippedBySeen} | collected=${collected.length} 累计=${newTotal}`, {
+        inserted,
+        mergedCount,
+        skippedBySeen,
+        collectedNow: collected.length,
+        totalCollected: newTotal,
+        seenGoodsIdsSize: seenIds.size,
+    });
+    if (mergedCount > 0) {
+        logAction('info', `[upsertItems] 第一类（byId合并）完整列表 ${mergedCount} 条`, {
+            items: mergedNames.map(({goodsId, name}) => `${goodsId} | ${name}`),
+        });
+    }
+    if (skippedBySeen > 0) {
+        logAction('info', `[upsertItems] 第二类（历史跳过）完整列表 ${skippedBySeen} 条`, {
+            items: skippedNames.map(({goodsId, name}) => `${goodsId} | ${name}`),
+        });
+    }
     await patchState({
         collected,
         stats: {
-            listingTotal: collected.length,
+            listingTotal: newTotal,
         },
     });
-    await enqueueUploadItems(items, getNormalizedPageType());
+    // 只上传本次真正新增的条目，跳过已入库的历史商品
+    if (newItems.length > 0) {
+        await enqueueUploadItems(newItems, getNormalizedPageType());
+    }
     return inserted;
 }
 
 /**
- * 把一批商品推进"待上传"队列，并尝试触发一次批量上传：
+ * 把一批商品推进"待上传"队列，并立刻强制同步到后端：
  *   - 只保留有 goodsId 的条目；
  *   - 字段名 camelCase → snake_case，对齐后端入库 schema；
  *   - 详情页字段 (`detailPrice`/`detailSales` 等) 优先，列表字段兜底；
- *   - 推完队列调用 `uploadPendingBatch(false)` 做"未强制"上传，只有达到 batch 阈值才真发网络请求。
+ *   - 成功后 `uploadPendingBatch(true)` 会清掉本地待上传队列，避免插件本地长期保存完整商品数据。
  * @param {Array<Record<string, unknown>>} items
  * @param {string} pageType
  * @returns {Promise<void>}
@@ -3654,12 +4702,12 @@ async function enqueueUploadItems(items, pageType) {
         pendingUploadItems: [...(state.pendingUploadItems || []), ...payloadItems],
     });
 
-    await uploadPendingBatch(false);
+    await uploadPendingBatch(true);
 }
 
 /**
  * 把一批"关联边"推进待上传队列。边用于 Graph 模式记录商品之间的跳转关系
- * （如"看了又看"/"相关推荐"），推完队列同样触发一次批量上传。
+ * （如"看了又看"/"相关推荐"），推完队列同样立刻同步到后端。
  * @param {Array<Record<string, unknown>>} edges
  * @returns {Promise<void>}
  */
@@ -3669,13 +4717,13 @@ async function enqueueUploadEdges(edges) {
     await patchState({
         pendingUploadEdges: [...(state.pendingUploadEdges || []), ...edges],
     });
-    await uploadPendingBatch(false);
+    await uploadPendingBatch(true);
 }
 
 /**
  * 批量上传队列落盘 → 后端。关键点：
  *   - `uploadInFlight` 作为内存互斥，避免多次触发并发上传；
- *   - 非强制模式下只有 items 达到 `UPLOAD_BATCH_SIZE` 才会发，防止每张卡刷一次网络；
+ *   - 非强制模式下只有 items 达到 `UPLOAD_BATCH_SIZE` 才会发；采集入口现在默认用强制模式直接同步；
  *   - edges 的批量大小会随着 items 规模动态调整（batchItems * 2，最低 20）；
  *   - 调 background.js 的 `backendUploadBatch`，成功后再切片删掉队列里已上传部分。
  * 返回 true 表示"没有剩余或成功"；false 表示"未达阈值跳过/上传失败"。
@@ -3709,15 +4757,67 @@ async function uploadPendingBatch(force = false) {
 
     if (response?.ok) {
         const latest = await getState();
+        // 上传成功后只更新 seenGoodsIds（后续去重用），collected 保持不动。
+        // collected 会在导航跳转前由 clearCollectedBeforeNavigation() 统一清理，
+        // 这样 runInitialFilter 在导航前仍能从 collected 里挑选目标。
+        const uploadedIds = new Set(batchItems.map((i) => i.goods_id).filter(Boolean));
+        const existingSeenSet = new Set(latest.seenGoodsIds || []);
+        const newSeenGoodsIds = [
+            ...(latest.seenGoodsIds || []),
+            ...Array.from(uploadedIds).filter((id) => !existingSeenSet.has(id)),
+        ];
+        logAction('info', `[uploadPendingBatch] 上传成功：本批 ${batchItems.length} 条，seenGoodsIds=${newSeenGoodsIds.length}（collected 保留至导航前清理）`, {
+            batchSize: batchItems.length,
+            collectedNow: (latest.collected || []).length,
+            seenGoodsIdsSize: newSeenGoodsIds.length,
+        });
         await patchState({
             pendingUploadItems: (latest.pendingUploadItems || []).slice(batchItems.length),
             pendingUploadEdges: (latest.pendingUploadEdges || []).slice(batchEdges.length),
+            seenGoodsIds: newSeenGoodsIds,
         });
     } else {
+        logAction('warn', `[uploadPendingBatch] 上传失败，本批 ${batchItems.length} 条保留待重传`, {
+            batchSize: batchItems.length,
+            response,
+        });
     }
 
     uploadInFlight = false;
     return Boolean(response?.ok);
+}
+
+/**
+ * 导航跳转前清理 collected：
+ *   - 把 collected.length 累加到 totalCollected，保持计数连续；
+ *   - 把所有 goodsId 补入 seenGoodsIds（防止未上传完的条目漏掉去重）；
+ *   - 清空 collected。
+ * 应在 window.open 之前 await，确保新页面的内容脚本读到的是干净状态。
+ */
+async function clearCollectedBeforeNavigation() {
+    const state = await getState();
+    const count = state.collected?.length || 0;
+    if (count === 0) return;
+
+    const existingSeenSet = new Set(state.seenGoodsIds || []);
+    const newSeenGoodsIds = [
+        ...(state.seenGoodsIds || []),
+        ...(state.collected || []).map((c) => c.goodsId).filter((id) => id && !existingSeenSet.has(id)),
+    ];
+    const newTotalCollected = (state.totalCollected || 0) + count;
+
+    logAction('info', `[nav] 导航前清理 collected ${count} 条，totalCollected: ${state.totalCollected || 0} → ${newTotalCollected}，seenGoodsIds=${newSeenGoodsIds.length}`, {
+        cleared: count,
+        totalCollectedBefore: state.totalCollected || 0,
+        totalCollectedAfter: newTotalCollected,
+        seenGoodsIdsSize: newSeenGoodsIds.length,
+    });
+
+    await patchState({
+        collected: [],
+        totalCollected: newTotalCollected,
+        seenGoodsIds: newSeenGoodsIds,
+    });
 }
 
 /**
@@ -3766,12 +4866,12 @@ function findLoadMoreBtn() {
  *   - start：校验页面类型 + 启动 run（写 state、拉 runUuid、调 main()）；
  *   - stop：强制把剩余队列上传，标记后端 run 结束，重置 state；
  *   - getState：UI 轮询当前 state（总数/队列长度/当前 phase 等）；
- *   - setConfig：popup 改配置时写回 state 并同步调试面板；
+ *   - setConfig：popup 改配置时写回 state；
  *   - triggerLoadMoreNow：popup 手动点"立即点击查看更多"按钮的入口；
  *   - setWorkflowState：外部强制迁移 FSM（排障用）；
- *   - getData：popup 拉 collected 数据用于导出 CSV；
+ *   - applyLocalWarehouseFilter：立即应用本地仓商品过滤；
  *   - clickOneClickListing：独立上架流程，主动点击当前详情页的"一键上架"；
- *   - clearAll：清空 state，重置调试面板显隐状态。
+ *   - clearAll：清空 state。
  * 所有异步分支都 return true 保持 sendResponse 通道打开。
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -3798,7 +4898,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 ...state.config,
                 ...requestedConfig,
             };
-            state.config.autoClickLoadMore = state.config.collectionMode === COLLECTION_MODES.AGGRESSIVE;
+            const isAggressive = state.config.collectionMode === COLLECTION_MODES.AGGRESSIVE;
+            state.config.autoClickLoadMore = isAggressive;
+            state.config.autoClickV1 = isAggressive;
             // 启动时始终把当前 URL 记为最近一次发现流来源，兼容老字段 listingUrl。
             state.lastDiscoveryUrl = location.href;
             state.listingUrl = location.href;
@@ -3843,7 +4945,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({
                 phase: state.phase,
                 running: state.running,
-                total: state.collected.length,
+                total: getTotalCollected(state),
                 queueLen: state.targetQueue.length,
                 config: state.config,
                 stats: state.stats,
@@ -3861,14 +4963,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 ...current.config,
                 ...(message.config || {}),
             };
-            if (!Object.prototype.hasOwnProperty.call(message.config || {}, 'autoClickLoadMore')) {
-                nextConfig.autoClickLoadMore = nextConfig.collectionMode === COLLECTION_MODES.AGGRESSIVE;
-            }
+            const isAggressive = nextConfig.collectionMode === COLLECTION_MODES.AGGRESSIVE;
+            nextConfig.autoClickLoadMore = isAggressive;
+            nextConfig.autoClickV1 = isAggressive;
             await patchState({config: nextConfig});
-            await applyDebugPanelConfig(nextConfig);
+            const nextState = await getState();
+            if (
+                nextState.running
+                && nextState.phase === 'navigating'
+                && nextConfig.autoClickV1
+                && Array.isArray(nextState.targetQueue)
+                && nextState.targetQueue.length > 0
+            ) {
+                await highlightPendingItem(nextState.targetQueue[0], '待处理目标，点击后进入下一商品');
+            }
             notifyState(await getState());
             sendResponse({ok: true, config: nextConfig});
         })();
+        return true;
+    }
+
+    if (message.action === 'setLogVisible') {
+        timelineVisible = Boolean(message.visible);
+        const host = document.getElementById('temu-timeline-host');
+        if (host) host.style.display = timelineVisible ? '' : 'none';
+        sendResponse({ok: true});
         return true;
     }
 
@@ -3876,6 +4995,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
             const ok = await triggerLoadMoreNow();
             sendResponse({ok});
+        })();
+        return true;
+    }
+
+    if (message.action === 'applyLocalWarehouseFilter') {
+        (async () => {
+            await patchState({
+                config: {
+                    removeLocalWarehouse: Boolean(message.enabled),
+                },
+            });
+            const removed = message.enabled ? removeLocalWarehouseProductCards() : 0;
+            notifyState(await getState());
+            sendResponse({ok: true, removed});
         })();
         return true;
     }
@@ -3895,11 +5028,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
-    if (message.action === 'getData') {
-        getState().then((state) => sendResponse({data: state.collected}));
-        return true;
-    }
-
     if (message.action === 'clickOneClickListing') {
         clickOneClickListingButton().then(sendResponse);
         return true;
@@ -3908,7 +5036,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'clearAll') {
         clearPendingAutoClick();
         chrome.storage.local.remove([STORE_KEY], () => {
-            setDebugPanelVisibility(defaultState().config.showDebugPanel);
             sendResponse({ok: true});
         });
         return true;

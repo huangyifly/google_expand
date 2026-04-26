@@ -26,8 +26,8 @@ export function defaultState() {
 
     // 配置项
     config: {
-      intervalSec: 5,
-      batchSize: 60,
+      intervalSec: 10,
+      batchSize: 300,
       totalLimit: 10000,
       autoClickV1: false,
       autoClickLoadMore: false,

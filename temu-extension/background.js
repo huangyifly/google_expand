@@ -27,6 +27,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 const popupPorts = new Set();
 const BACKEND_BASE_URL = 'http://47.107.78.215:8000';
 const TEMU_TAB_QUERY = { url: '*://*.temu.com/*' };
+const LISTING_WORKFLOW_GOODS_ID_KEY = 'temu_listing_workflow_goods_id';
 const TEMU_BROWSING_DATA_ORIGINS = [
   'https://temu.com',
   'https://www.temu.com',
@@ -50,16 +51,8 @@ const TEMU_SUGGEST_SALES_PRICE_INPUT_SELECTOR = '#productSkuMap\\.16091728_28743
 const TEMU_SUGGEST_SALES_PRICE_CURRENCY_INPUT_SELECTOR = '#productSkuMap\\.16091728_287431221\\.suggestSalesPrice > div > div > div > div > div > div.ST_outerWrapper_5-120-1.IPT_selectBorderRadius_5-120-1.ST_medium_5-120-1 > div > div > div > div > div > div > div.IPT_inputBlockCell_5-120-1.ST_inputBlockCell_5-120-1 > input';
 const TEMU_AGREEMENT_CHECKBOX_SELECTOR = '#page_container_id > form > div.product-create_container__zWGwR.product-create_withSopAnnouncement__Hi6uH > div > div.product-create_bodyContainer__LhHuy > div.product-create_newButtonContainer__1UHMe > div:nth-child(1) > label > div.CBX_squareInputWrapper_5-120-1 > input';
 const TEMU_CREATE_BUTTON_SELECTOR = '#page_container_id > form > div.product-create_container__zWGwR.product-create_withSopAnnouncement__Hi6uH > div > div.product-create_bodyContainer__LhHuy > div.product-create_newButtonContainer__1UHMe > div.product-create_buttons__O6H\\+r > div:nth-child(2) > button.BTN_outerWrapper_5-120-1.BTN_primary_5-120-1.BTN_large_5-120-1.BTN_outerWrapperBtn_5-120-1';
-const TEMU_TEST_PACKAGE_VALUES = {
-  length: '20',
-  width: '15',
-  height: '5',
-  weight: '200',
-};
-const TEMU_TEST_DECLARED_PRICE = '9.99';
 const TEMU_TEST_SKU_CLASSIFICATION = '单品';
 const TEMU_TEST_PACK_INCLUDE = '1';
-const TEMU_TEST_SUGGEST_SALES_PRICE = '19.99';
 const TEMU_TEST_SUGGEST_SALES_PRICE_CURRENCY = 'USD';
 
 /**
@@ -116,8 +109,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'openInNewTab') {
+    openInNewTab(msg?.url)
+      .then((response) => sendResponse(response))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
   if (msg.action === 'clearTemuSiteData') {
     clearTemuSiteData()
+      .then((response) => sendResponse(response))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (msg.action === 'pruneTemuDetailTabs') {
+    pruneTemuDetailTabs(msg.maxCount ?? 1)
       .then((response) => sendResponse(response))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
@@ -135,10 +142,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     'start',
     'stop',
     'getState',
-    'getData',
     'clearAll',
     'setConfig',
     'triggerLoadMoreNow',
+    'applyLocalWarehouseFilter',
     'setWorkflowState',
   ];
 
@@ -147,6 +154,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // 异步
   }
 });
+
+/**
+ * 由扩展后台创建新标签页，避免 content script 的 window.open 被页面策略拦截。
+ * @param {string | undefined} url
+ * @returns {Promise<{ok: boolean, error?: string}>}
+ */
+async function openInNewTab(url) {
+  const href = String(url || '').trim();
+  if (!href) return { ok: false, error: '缺少跳转地址。' };
+
+  await new Promise((resolve, reject) => {
+    chrome.tabs.create({ url: href, active: true }, (tab) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message || '无法创建新标签页'));
+        return;
+      }
+      resolve(tab);
+    });
+  });
+
+  return { ok: true };
+}
 
 /**
  * 把 popup 的控制消息（start/stop/getState 等）转发给 Temu 的 content script。
@@ -256,16 +285,32 @@ async function clickOneClickListingWithDebugger() {
   if (isTemuGoodsEditUrl(stageTab.url)) {
     await focusTab(stageTab);
     await delay(12000);
-    const originResult = await selectTemuGoodsOriginProvince(stageTab.id, '广东省');
+    const goodsId = await getRememberedListingWorkflowGoodsId();
+    if (!goodsId) {
+      return {
+        ok: false,
+        stage: 'temu_goods_edit',
+        error: '当前已在商品编辑页，但缺少 goods_id，请从 Temu 商品详情页启动一次上架流程。',
+      };
+    }
+    const originResult = await runTemuGoodsEditAutomation(stageTab.id, goodsId);
     return {
       ok: originResult.ok,
       stage: 'temu_goods_edit',
-      originSelected: originResult.ok,
+      ...originResult,
       error: originResult.error || '',
     };
   }
 
   if (isYunqiGroundingUrl(stageTab.url)) {
+    const goodsId = await getRememberedListingWorkflowGoodsId();
+    if (!goodsId) {
+      return {
+        ok: false,
+        stage: 'yunqi_grounding',
+        error: '当前已在云启上架页，但缺少 goods_id，请从 Temu 商品详情页启动一次上架流程。',
+      };
+    }
     await focusTab(stageTab);
     const groundingResult = await clickYunqiGroundingButton(stageTab.id);
     if (!groundingResult.ok) {
@@ -277,12 +322,12 @@ async function clickOneClickListingWithDebugger() {
         error: groundingResult.error || '',
       };
     }
-    const originResult = await waitForAndSelectTemuGoodsOrigin();
+    const originResult = await waitForAndSelectTemuGoodsOrigin(goodsId);
     return {
       ok: originResult.ok,
       stage: 'yunqi_grounding',
       groundingClicked: true,
-      originSelected: originResult.ok,
+      ...originResult,
       groundingError: '',
       error: originResult.error || '',
     };
@@ -307,8 +352,9 @@ async function clickOneClickListingWithDebugger() {
     };
   }
 
+  await rememberListingWorkflowGoodsId(target.goodsId);
   await dispatchDebuggerClick(tab.id, target.x, target.y);
-  const groundingResult = await waitForAndClickYunqiGroundingButton();
+  const groundingResult = await waitForAndClickYunqiGroundingButton(target.goodsId);
 
   popupPorts.forEach(port => {
     try {
@@ -333,10 +379,32 @@ async function clickOneClickListingWithDebugger() {
 }
 
 /**
+ * @param {string} goodsId
+ * @returns {Promise<void>}
+ */
+function rememberListingWorkflowGoodsId(goodsId) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [LISTING_WORKFLOW_GOODS_ID_KEY]: goodsId || '' }, () => resolve());
+  });
+}
+
+/**
+ * @returns {Promise<string>}
+ */
+function getRememberedListingWorkflowGoodsId() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([LISTING_WORKFLOW_GOODS_ID_KEY], (result) => {
+      resolve(result?.[LISTING_WORKFLOW_GOODS_ID_KEY] || '');
+    });
+  });
+}
+
+/**
  * 等待云启上架页面出现，并点击表格第一行的一键上架按钮。
+ * @param {string} goodsId
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
-async function waitForAndClickYunqiGroundingButton() {
+async function waitForAndClickYunqiGroundingButton(goodsId) {
   const tab = await waitForYunqiGroundingTab(YUNQI_GROUNDING_WAIT_MS);
   if (!tab?.id) {
     return { ok: false, error: '未检测到云启上架页面打开或跳转。' };
@@ -347,7 +415,7 @@ async function waitForAndClickYunqiGroundingButton() {
   const groundingResult = await clickYunqiGroundingButton(tab.id);
   if (!groundingResult.ok) return groundingResult;
 
-  const originResult = await waitForAndSelectTemuGoodsOrigin();
+  const originResult = await waitForAndSelectTemuGoodsOrigin(goodsId);
   if (!originResult.ok) return originResult;
 
   return {
@@ -479,9 +547,10 @@ function clickYunqiGroundingButton(tabId) {
 
 /**
  * 等待 Temu seller 商品编辑页出现，等待页面渲染后选择商品产地二级下拉为广东省。
+ * @param {string} goodsId
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
-async function waitForAndSelectTemuGoodsOrigin() {
+async function waitForAndSelectTemuGoodsOrigin(goodsId) {
   const tab = await waitForTemuGoodsEditTab(TEMU_GOODS_EDIT_WAIT_MS);
   if (!tab?.id) {
     return { ok: false, error: '未检测到 Temu 商品编辑页打开或跳转。' };
@@ -489,34 +558,47 @@ async function waitForAndSelectTemuGoodsOrigin() {
 
   await focusTab(tab);
   await delay(12000);
-  const originResult = await selectTemuGoodsOriginProvince(tab.id, '广东省');
+  return runTemuGoodsEditAutomation(tab.id, goodsId);
+}
+
+/**
+ * 执行 Temu seller 编辑页填写。体积/重量/价格来自后台 admin/products。
+ * @param {number} tabId
+ * @param {string} goodsId
+ * @returns {Promise<{ok: boolean, error?: string, [key: string]: unknown}>}
+ */
+async function runTemuGoodsEditAutomation(tabId, goodsId) {
+  const listingConfig = await fetchListingConfig(goodsId);
+  if (!listingConfig.ok) return listingConfig;
+
+  const originResult = await selectTemuGoodsOriginProvince(tabId, '广东省');
   if (!originResult.ok) return originResult;
 
-  const uploadResult = await uploadMaterialImageToTemuGoodsEdit(tab.id);
+  const uploadResult = await uploadMaterialImageToTemuGoodsEdit(tabId);
   if (!uploadResult.ok) return uploadResult;
 
-  const packageResult = await fillTemuGoodsPackageValues(tab.id, TEMU_TEST_PACKAGE_VALUES);
+  const packageResult = await fillTemuGoodsPackageValues(tabId, listingConfig.packageValues);
   if (!packageResult.ok) return packageResult;
 
-  const priceResult = await fillTemuGoodsDeclaredPrice(tab.id, TEMU_TEST_DECLARED_PRICE);
+  const priceResult = await fillTemuGoodsDeclaredPrice(tabId, listingConfig.declaredPrice);
   if (!priceResult.ok) return priceResult;
 
-  const skuResult = await fillTemuGoodsSkuMultiPack(tab.id, {
+  const skuResult = await fillTemuGoodsSkuMultiPack(tabId, {
     classification: TEMU_TEST_SKU_CLASSIFICATION,
     packInclude: TEMU_TEST_PACK_INCLUDE,
   });
   if (!skuResult.ok) return skuResult;
 
-  const suggestPriceResult = await fillTemuGoodsSuggestSalesPrice(tab.id, {
-    price: TEMU_TEST_SUGGEST_SALES_PRICE,
+  const suggestPriceResult = await fillTemuGoodsSuggestSalesPrice(tabId, {
+    price: listingConfig.suggestedPrice,
     currency: TEMU_TEST_SUGGEST_SALES_PRICE_CURRENCY,
   });
   if (!suggestPriceResult.ok) return suggestPriceResult;
 
-  const agreementResult = await checkTemuGoodsAgreement(tab.id);
+  const agreementResult = await checkTemuGoodsAgreement(tabId);
   if (!agreementResult.ok) return agreementResult;
 
-  const createResult = await clickTemuGoodsCreateButton(tab.id);
+  const createResult = await clickTemuGoodsCreateButton(tabId);
   if (!createResult.ok) return createResult;
 
   return {
@@ -529,6 +611,56 @@ async function waitForAndSelectTemuGoodsOrigin() {
     suggestSalesPriceFilled: true,
     agreementChecked: true,
     createClicked: true,
+  };
+}
+
+/**
+ * 从后台读取当前 goods_id 的上架参数。
+ * @param {string} goodsId
+ * @returns {Promise<{ok: boolean, packageValues?: {length: string, width: string, height: string, weight: string}, declaredPrice?: string, suggestedPrice?: string, error?: string}>}
+ */
+async function fetchListingConfig(goodsId) {
+  if (!goodsId) {
+    return { ok: false, error: '缺少 goods_id，无法读取后台上架参数。' };
+  }
+
+  const response = await fetch(`${BACKEND_BASE_URL}/api/dashboard/products/${encodeURIComponent(goodsId)}/listing-config`);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data?.ok) {
+    return {
+      ok: false,
+      error: data.detail || data.error || `读取后台上架参数失败：${response.status}`,
+    };
+  }
+
+  const required = [
+    ['listing_length_cm', '最长边'],
+    ['listing_width_cm', '次长边'],
+    ['listing_height_cm', '最短边'],
+    ['listing_weight_g', '重量'],
+    ['listing_declared_price', '申报价'],
+    ['listing_suggested_price', '建议零售价'],
+  ];
+  const missing = required
+    .filter(([key]) => data[key] === undefined || data[key] === null || String(data[key]).trim() === '')
+    .map(([, label]) => label);
+  if (missing.length) {
+    return {
+      ok: false,
+      error: `后台上架参数未填写完整：${missing.join('、')}。请先到 admin/products 保存参数。`,
+    };
+  }
+
+  return {
+    ok: true,
+    packageValues: {
+      length: String(data.listing_length_cm),
+      width: String(data.listing_width_cm),
+      height: String(data.listing_height_cm),
+      weight: String(data.listing_weight_g),
+    },
+    declaredPrice: String(data.listing_declared_price),
+    suggestedPrice: String(data.listing_suggested_price),
   };
 }
 
@@ -597,7 +729,7 @@ function selectTemuGoodsOriginProvince(tabId, province) {
           el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
           el.click();
         };
-        const markElement = async (el, label, color = '#ef4444', waitMs = 2000) => {
+        const markElement = async (el, label, color = '#b98546', waitMs = 2000) => {
           if (!el) return;
           el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
           const rect = el.getBoundingClientRect();
@@ -676,7 +808,7 @@ function selectTemuGoodsOriginProvince(tabId, province) {
           return { ok: false, error: '未找到“商品产地”的二级下拉框。' };
         }
 
-        await markElement(dropdown, '插件选中的商品产地省份下拉框', '#ef4444', 3000);
+        await markElement(dropdown, '插件选中的商品产地省份下拉框', '#b98546', 3000);
         dropdown.focus?.();
         await click(dropdown);
         dropdown.dispatchEvent(new Event('input', { bubbles: true }));
@@ -694,7 +826,7 @@ function selectTemuGoodsOriginProvince(tabId, province) {
           return { ok: false, error: `未找到“${provinceName}”选项。` };
         }
 
-        await markElement(option, `插件选中的选项：${provinceName}`, '#2563eb', 2000);
+        await markElement(option, `插件选中的选项：${provinceName}`, '#2f4858', 2000);
         await click(option);
         return { ok: true };
       },
@@ -1603,6 +1735,36 @@ function removeTemuBrowsingData() {
 }
 
 /**
+ * 当 Temu 详情页 tab 数量超过 maxCount 时，关闭最旧的若干个，只保留最近的 maxCount 个。
+ * 判断依据：URL 匹配 temu.com 且是商品详情页（含 -g-数字.html 模式）。
+ * 按 lastAccessed 升序排列，优先关闭最久未访问的。
+ * @param {number} maxCount 最多保留的 detail tab 数量
+ * @returns {Promise<{ok: boolean, closed: number, remaining: number}>}
+ */
+async function pruneTemuDetailTabs(maxCount) {
+  const limit = typeof maxCount === 'number' && maxCount > 0 ? maxCount : 1;
+  const allTemuTabs = await queryTabs(TEMU_TAB_QUERY);
+
+  // 只处理详情页
+  const detailTabs = allTemuTabs.filter((tab) => isTemuProductDetailUrl(tab.url));
+
+  if (detailTabs.length <= limit) {
+    return { ok: true, closed: 0, remaining: detailTabs.length };
+  }
+
+  // 按 lastAccessed 升序（最旧在前），关闭超出部分
+  const sorted = [...detailTabs].sort((a, b) => (a.lastAccessed ?? 0) - (b.lastAccessed ?? 0));
+  const toClose = sorted.slice(0, sorted.length - limit);
+  const tabIds = toClose.map((tab) => tab.id).filter(Boolean);
+
+  await new Promise((resolve) => {
+    chrome.tabs.remove(tabIds, () => resolve());
+  });
+
+  return { ok: true, closed: tabIds.length, remaining: detailTabs.length - tabIds.length };
+}
+
+/**
  * Promise 版 chrome.tabs.query 封装。MV3 的 chrome.tabs.query 仍是回调式，
  * 这里统一包一层便于 async/await。
  * @param {chrome.tabs.QueryInfo} queryInfo
@@ -1660,6 +1822,10 @@ async function handleBackendAction(msg) {
     return postJson(`/api/runs/${encodeURIComponent(runUuid)}/finish`, msg.payload || {});
   }
 
+  if (msg.action === 'fetchExclusionKeywords') {
+    return getJson('/api/config/exclusion-keywords');
+  }
+
   return { ok: false, error: '未知后端动作' };
 }
 
@@ -1682,6 +1848,36 @@ async function postJson(path, payload) {
     body: JSON.stringify(payload || {}),
   });
 
+  const text = await response.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_) {
+    data = { raw: text };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: data.detail || data.error || `请求失败: ${response.status}`,
+      data,
+    };
+  }
+
+  return {
+    ok: true,
+    ...data,
+  };
+}
+
+/**
+ * 统一的 GET JSON helper。与 postJson 逻辑相同，不带 body。
+ * @param {string} path
+ * @returns {Promise<{ok: boolean, status?: number, error?: string, [k: string]: unknown}>}
+ */
+async function getJson(path) {
+  const response = await fetch(`${BACKEND_BASE_URL}${path}`);
   const text = await response.text();
   let data = {};
   try {

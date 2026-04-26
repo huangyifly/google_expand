@@ -150,12 +150,12 @@ export function ensureHighlightStyle() {
     .temu-scraper-pending-target {
       position: relative !important;
       isolation: isolate !important;
-      outline: 4px solid #ff6a00 !important;
+      outline: 4px solid #b98546 !important;
       outline-offset: 2px !important;
-      box-shadow: 0 0 0 8px rgba(255, 106, 0, 0.28), 0 18px 38px rgba(255, 106, 0, 0.18) !important;
+      box-shadow: 0 0 0 8px rgba(185, 133, 70, 0.24), 0 16px 32px rgba(47, 72, 88, 0.16) !important;
       border-radius: 12px !important;
       animation: temu-scraper-pulse 1.15s ease-in-out infinite;
-      background: rgba(255, 106, 0, 0.10) !important;
+      background: rgba(185, 133, 70, 0.12) !important;
       z-index: 999 !important;
     }
     .temu-scraper-pending-target > * {
@@ -167,7 +167,7 @@ export function ensureHighlightStyle() {
       position: absolute;
       inset: 0;
       border-radius: inherit;
-      background: linear-gradient(180deg, rgba(255, 106, 0, 0.16), rgba(255, 106, 0, 0.06));
+      background: linear-gradient(180deg, rgba(185, 133, 70, 0.16), rgba(47, 72, 88, 0.08));
       pointer-events: none;
       z-index: 0;
     }
@@ -178,20 +178,20 @@ export function ensureHighlightStyle() {
       top: 10px;
       padding: 6px 10px;
       border-radius: 999px;
-      background: #ff6a00;
+      background: #2f4858;
       color: #fff;
       font-size: 12px;
       font-weight: 700;
       line-height: 1;
       white-space: nowrap;
-      box-shadow: 0 6px 18px rgba(255, 106, 0, 0.28);
+      box-shadow: 0 6px 18px rgba(47, 72, 88, 0.24);
       z-index: 3;
       pointer-events: none;
     }
     .temu-scraper-load-more-target {
       position: relative !important;
-      outline: 3px dashed #0ea5e9 !important;
-      box-shadow: 0 0 0 6px rgba(14, 165, 233, 0.18) !important;
+      outline: 3px dashed #2f4858 !important;
+      box-shadow: 0 0 0 6px rgba(47, 72, 88, 0.18) !important;
       border-radius: 12px !important;
       animation: temu-scraper-pulse-load-more 1.2s ease-in-out infinite;
       z-index: 1;
@@ -204,20 +204,20 @@ export function ensureHighlightStyle() {
       transform: translate(-50%, -100%);
       padding: 6px 10px;
       border-radius: 999px;
-      background: #0ea5e9;
+      background: #2f4858;
       color: #fff;
       font-size: 12px;
       font-weight: 700;
       line-height: 1;
       white-space: nowrap;
-      box-shadow: 0 6px 18px rgba(14, 165, 233, 0.28);
+      box-shadow: 0 6px 18px rgba(47, 72, 88, 0.24);
       z-index: 2;
       pointer-events: none;
     }
     .temu-scraper-related-area-target {
       position: relative !important;
-      outline: 3px dashed #8b5cf6 !important;
-      box-shadow: 0 0 0 8px rgba(139, 92, 246, 0.14) !important;
+      outline: 3px dashed #7a6750 !important;
+      box-shadow: 0 0 0 8px rgba(122, 103, 80, 0.16) !important;
       border-radius: 16px !important;
       animation: temu-scraper-pulse-related 1.3s ease-in-out infinite;
       z-index: 1;
@@ -229,12 +229,12 @@ export function ensureHighlightStyle() {
       top: 16px;
       padding: 6px 10px;
       border-radius: 999px;
-      background: #8b5cf6;
+      background: #7a6750;
       color: #fff;
       font-size: 12px;
       font-weight: 700;
       line-height: 1;
-      box-shadow: 0 6px 18px rgba(139, 92, 246, 0.26);
+      box-shadow: 0 6px 18px rgba(122, 103, 80, 0.22);
       z-index: 2;
       pointer-events: none;
     }
@@ -245,13 +245,14 @@ export function ensureHighlightStyle() {
       transform: translate(-50%, 14px);
       padding: 10px 14px;
       border-radius: 999px;
-      background: rgba(15, 23, 42, 0.94);
+      background: rgba(47, 72, 88, 0.95);
       color: #fff;
       z-index: 2147483647;
       opacity: 0;
       transition: opacity 0.22s ease, transform 0.22s ease;
-      font: 12px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.24);
+      font: 12px/1.4 "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      box-shadow: 0 12px 28px rgba(36, 57, 70, 0.24);
+      border: 1px solid rgba(229, 221, 208, 0.32);
     }
     .temu-scraper-toast.show {
       opacity: 1;
@@ -264,16 +265,16 @@ export function ensureHighlightStyle() {
       background: rgba(21, 128, 61, 0.94);
     }
     @keyframes temu-scraper-pulse {
-      0%, 100% { box-shadow: 0 0 0 8px rgba(255, 106, 0, 0.28), 0 18px 38px rgba(255, 106, 0, 0.18); }
-      50% { box-shadow: 0 0 0 12px rgba(255, 106, 0, 0.16), 0 20px 44px rgba(255, 106, 0, 0.12); }
+      0%, 100% { box-shadow: 0 0 0 8px rgba(185, 133, 70, 0.24), 0 16px 32px rgba(47, 72, 88, 0.16); }
+      50% { box-shadow: 0 0 0 12px rgba(185, 133, 70, 0.14), 0 18px 36px rgba(47, 72, 88, 0.10); }
     }
     @keyframes temu-scraper-pulse-load-more {
-      0%, 100% { box-shadow: 0 0 0 6px rgba(14, 165, 233, 0.18); }
-      50% { box-shadow: 0 0 0 10px rgba(14, 165, 233, 0.1); }
+      0%, 100% { box-shadow: 0 0 0 6px rgba(47, 72, 88, 0.18); }
+      50% { box-shadow: 0 0 0 10px rgba(47, 72, 88, 0.10); }
     }
     @keyframes temu-scraper-pulse-related {
-      0%, 100% { box-shadow: 0 0 0 8px rgba(139, 92, 246, 0.14); }
-      50% { box-shadow: 0 0 0 14px rgba(139, 92, 246, 0.08); }
+      0%, 100% { box-shadow: 0 0 0 8px rgba(122, 103, 80, 0.16); }
+      50% { box-shadow: 0 0 0 14px rgba(122, 103, 80, 0.08); }
     }
   `;
   document.documentElement.appendChild(style);

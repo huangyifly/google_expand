@@ -1,12 +1,15 @@
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.models import Product
 from app.services.dashboard_service import (
+    export_products_excel,
     get_dashboard_edges,
     get_dashboard_overview,
     get_dashboard_products,
@@ -83,6 +86,24 @@ def dashboard_products(
     )
 
 
+@router.get("/products/export")
+def export_products(
+    q: str = Query(default=""),
+    sort_by: str = Query(default="last_seen_at"),
+    sort_order: str = Query(default="desc"),
+    db: Session = Depends(get_db),
+) -> Response:
+    """导出当前筛选条件下的全量商品数据为 Excel 文件。"""
+    xlsx_bytes = export_products_excel(db, keyword=q, sort_by=sort_by, sort_order=sort_order)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"temu_products_{timestamp}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.patch("/products/{goods_id}/listing-config")
 def update_product_listing_config(
     goods_id: str,
@@ -100,3 +121,29 @@ def update_product_listing_config(
     db.commit()
     db.refresh(product)
     return {"ok": True, "goods_id": product.goods_id}
+
+
+@router.get("/products/{goods_id}/listing-config")
+def get_product_listing_config(
+    goods_id: str,
+    db: Session = Depends(get_db),
+) -> dict:
+    product = db.query(Product).filter(Product.goods_id == goods_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="商品不存在")
+
+    def decimal_text(value):
+        if value is None:
+            return ""
+        return format(value, "f").rstrip("0").rstrip(".")
+
+    return {
+        "ok": True,
+        "goods_id": product.goods_id,
+        "listing_length_cm": decimal_text(product.listing_length_cm),
+        "listing_width_cm": decimal_text(product.listing_width_cm),
+        "listing_height_cm": decimal_text(product.listing_height_cm),
+        "listing_weight_g": decimal_text(product.listing_weight_g),
+        "listing_declared_price": decimal_text(product.listing_declared_price),
+        "listing_suggested_price": decimal_text(product.listing_suggested_price),
+    }
