@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Temu 账号管理</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap');
+
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-soft: #f1f5f9;
+      --line: #dbe5f1;
+      --line-strong: #c3d4ea;
+      --text: #1e3a8a;
+      --text-body: #1f2a44;
+      --muted: #5b6b8f;
+      --primary: #1e40af;
+      --primary-strong: #1e3a8a;
+      --accent: #f59e0b;
+      --accent-soft: rgba(245, 158, 11, 0.14);
+      --ok: #15803d;
+      --err: #b91c1c;
+      --danger-soft: #fff1f2;
+      --danger-line: #fecdd3;
+      --shadow: 0 12px 28px rgba(30, 58, 138, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Fira Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text-body);
+      background:
+        radial-gradient(circle at 92% -8%, rgba(59, 130, 246, 0.12), transparent 34%),
+        radial-gradient(circle at -8% 112%, rgba(245, 158, 11, 0.10), transparent 36%),
+        var(--bg);
+    }
+
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 28px 20px 42px;
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+      max-width: 760px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn,
+    .btn-link,
+    button {
+      border: 1px solid transparent;
+      border-radius: 10px;
+      min-height: 38px;
+      padding: 8px 12px;
+      background: var(--primary);
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background-color 0.18s ease, opacity 0.18s ease;
+    }
+
+    .btn:hover,
+    .btn-link:hover,
+    button:hover {
+      background: var(--primary-strong);
+    }
+
+    .btn-link.secondary,
+    button.secondary {
+      background: var(--surface);
+      border-color: var(--line-strong);
+      color: var(--primary);
+    }
+
+    .btn-link.secondary:hover,
+    button.secondary:hover {
+      background: #eef3fb;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 14px;
+    }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 16px;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font: inherit;
+      background: var(--surface);
+      color: var(--text-body);
+      min-height: 38px;
+    }
+
+    input::placeholder { color: #8a98b3; }
+
+    .status-line {
+      min-height: 18px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .status-line.ok { color: var(--ok); }
+    .status-line.err { color: var(--err); }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      min-width: 980px;
+    }
+
+    th,
+    td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      white-space: nowrap;
+    }
+
+    tbody tr:hover { background: #f9fbff; }
+
+    .mono {
+      font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+    }
+
+    .email-cell {
+      min-width: 220px;
+      font-weight: 600;
+      color: var(--text-body);
+    }
+
+    .compact {
+      min-width: 112px;
+    }
+
+    .password-cell {
+      min-width: 170px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .badge.admin {
+      color: var(--primary);
+      background: rgba(30, 64, 175, 0.10);
+      border-color: rgba(30, 64, 175, 0.22);
+    }
+
+    .badge.user {
+      color: var(--muted);
+      background: var(--surface-soft);
+      border-color: var(--line);
+    }
+
+    .badge.active {
+      color: var(--ok);
+      background: rgba(21, 128, 61, 0.10);
+      border-color: rgba(21, 128, 61, 0.22);
+    }
+
+    .badge.inactive {
+      color: var(--err);
+      background: var(--danger-soft);
+      border-color: var(--danger-line);
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      white-space: nowrap;
+    }
+
+    .empty {
+      padding: 22px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .error-view {
+      margin: 24px;
+      padding: 16px;
+      border: 1px solid var(--danger-line);
+      border-radius: 12px;
+      background: var(--danger-soft);
+      color: var(--err);
+      white-space: pre-wrap;
+    }
+
+    button:focus-visible,
+    .btn-link:focus-visible,
+    input:focus-visible,
+    select:focus-visible {
+      outline: 3px solid rgba(30, 64, 175, 0.16);
+      outline-offset: 2px;
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .page { padding: 20px 12px 28px; }
+      .hero {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      h1 { font-size: 24px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <div>
+        <h1>Temu 账号管理</h1>
+        <p>管理员可在这里创建账号、调整角色、启停登录权限，并为账号重置密码。为避免误锁，当前账号不能停用自己或移除自己的管理员权限。</p>
+      </div>
+      <div class="actions">
+        <a class="btn-link secondary" href="/admin/products">商品查询页</a>
+        <a class="btn-link secondary" href="/admin">返回统计首页</a>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <div class="card-head">
+          <h2>新增账号</h2>
+        </div>
+        <form id="createForm" class="form-grid">
+          <label>
+            邮箱
+            <input id="createEmail" type="email" placeholder="user@example.com" autocomplete="username" required />
+          </label>
+          <label>
+            初始密码
+            <input id="createPassword" type="password" placeholder="至少 6 位" autocomplete="new-password" required />
+          </label>
+          <label>
+            角色
+            <select id="createRole">
+              <option value="user">普通账号</option>
+              <option value="admin">管理员</option>
+            </select>
+          </label>
+          <label>
+            状态
+            <select id="createActive">
+              <option value="true">启用</option>
+              <option value="false">停用</option>
+            </select>
+          </label>
+          <button id="createBtn" type="submit">创建账号</button>
+        </form>
+        <div id="createStatus" class="status-line"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>账号列表</h2>
+          <button id="refreshBtn" class="secondary" type="button">刷新</button>
+        </div>
+        <div id="listStatus" class="status-line"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>邮箱</th>
+                <th>当前角色</th>
+                <th>当前状态</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>重置密码</th>
+                <th>创建时间</th>
+                <th>更新时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="usersBody">
+              <tr><td class="empty" colspan="10">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const TOKEN_KEY = "temu_admin_token";
+    const ROLE_KEY = "temu_admin_role";
+    const EMAIL_KEY = "temu_admin_email";
+    const API_URL = "/api/admin/users";
+
+    let users = [];
+
+    function getAdminToken() {
+      return sessionStorage.getItem(TOKEN_KEY);
+    }
+
+    function authFetch(url, options = {}) {
+      const token = getAdminToken();
+      if (!token) {
+        window.location.href = "/login";
+        return Promise.reject(new Error("未登录"));
+      }
+      return fetch(url, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${token}`,
+        },
+      }).then((res) => {
+        if (res.status === 401) {
+          sessionStorage.removeItem(TOKEN_KEY);
+          sessionStorage.removeItem(ROLE_KEY);
+          sessionStorage.removeItem(EMAIL_KEY);
+          window.location.href = "/login";
+          throw new Error("登录已过期");
+        }
+        return res;
+      });
+    }
+
+    async function fetchJson(url, options = {}) {
+      const res = await authFetch(url, options);
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (error) {
+        data = null;
+      }
+      if (!res.ok) {
+        const detail = data && data.detail ? data.detail : `${url} -> ${res.status}`;
+        throw new Error(detail);
+      }
+      return data;
+    }
+
+    function setStatus(id, message, tone = "") {
+      const el = document.getElementById(id);
+      el.textContent = message || "";
+      el.className = `status-line ${tone}`.trim();
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function pad2(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function formatDateTime(value) {
+      if (value == null || value === "") return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return escapeHtml(value);
+      const yyyy = date.getFullYear();
+      const MM = pad2(date.getMonth() + 1);
+      const dd = pad2(date.getDate());
+      const HH = pad2(date.getHours());
+      const mm = pad2(date.getMinutes());
+      const ss = pad2(date.getSeconds());
+      return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
+    }
+
+    function roleText(role) {
+      return role === "admin" ? "管理员" : "普通账号";
+    }
+
+    function renderUsers() {
+      const body = document.getElementById("usersBody");
+      if (!users.length) {
+        body.innerHTML = `<tr><td class="empty" colspan="10">暂无账号</td></tr>`;
+        return;
+      }
+
+      body.innerHTML = users.map((user) => `
+        <tr>
+          <td class="mono">${user.id}</td>
+          <td class="email-cell">${escapeHtml(user.email)}</td>
+          <td><span class="badge ${user.role === "admin" ? "admin" : "user"}">${roleText(user.role)}</span></td>
+          <td><span class="badge ${user.is_active ? "active" : "inactive"}">${user.is_active ? "启用" : "停用"}</span></td>
+          <td>
+            <select class="compact" data-field="role" data-id="${user.id}">
+              <option value="user" ${user.role === "user" ? "selected" : ""}>普通账号</option>
+              <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
+            </select>
+          </td>
+          <td>
+            <select class="compact" data-field="is_active" data-id="${user.id}">
+              <option value="true" ${user.is_active ? "selected" : ""}>启用</option>
+              <option value="false" ${!user.is_active ? "selected" : ""}>停用</option>
+            </select>
+          </td>
+          <td class="password-cell">
+            <input data-field="password" data-id="${user.id}" type="password" placeholder="留空不修改" autocomplete="new-password" />
+          </td>
+          <td class="mono">${formatDateTime(user.created_at)}</td>
+          <td class="mono">${formatDateTime(user.updated_at)}</td>
+          <td>
+            <div class="row-actions">
+              <button type="button" data-save-user="${user.id}">保存</button>
+            </div>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    async function loadUsers() {
+      setStatus("listStatus", "正在加载账号...");
+      users = await fetchJson(API_URL);
+      renderUsers();
+      setStatus("listStatus", `共 ${users.length} 个账号`, "ok");
+    }
+
+    async function createUser(event) {
+      event.preventDefault();
+      const button = document.getElementById("createBtn");
+      button.disabled = true;
+      setStatus("createStatus", "正在创建账号...");
+      try {
+        await fetchJson(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("createEmail").value.trim(),
+            password: document.getElementById("createPassword").value,
+            role: document.getElementById("createRole").value,
+            is_active: document.getElementById("createActive").value === "true",
+          }),
+        });
+        document.getElementById("createForm").reset();
+        setStatus("createStatus", "账号已创建", "ok");
+        await loadUsers();
+      } catch (error) {
+        setStatus("createStatus", error.message, "err");
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function saveUser(userId, button) {
+      const role = document.querySelector(`[data-field="role"][data-id="${userId}"]`).value;
+      const isActive = document.querySelector(`[data-field="is_active"][data-id="${userId}"]`).value === "true";
+      const passwordInput = document.querySelector(`[data-field="password"][data-id="${userId}"]`);
+      const payload = { role, is_active: isActive };
+      if (passwordInput.value.trim()) {
+        payload.password = passwordInput.value;
+      }
+
+      const previous = button.textContent;
+      button.disabled = true;
+      button.textContent = "保存中...";
+      setStatus("listStatus", "正在保存账号...");
+      try {
+        await fetchJson(`${API_URL}/${userId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        passwordInput.value = "";
+        button.textContent = "已保存";
+        setStatus("listStatus", "账号已更新", "ok");
+        await loadUsers();
+      } catch (error) {
+        button.textContent = "保存失败";
+        setStatus("listStatus", error.message, "err");
+      } finally {
+        setTimeout(() => {
+          button.textContent = previous;
+          button.disabled = false;
+        }, 900);
+      }
+    }
+
+    document.getElementById("createForm").addEventListener("submit", createUser);
+    document.getElementById("refreshBtn").addEventListener("click", () => {
+      loadUsers().catch((error) => setStatus("listStatus", error.message, "err"));
+    });
+    document.getElementById("usersBody").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-save-user]");
+      if (!button) return;
+      saveUser(button.dataset.saveUser, button);
+    });
+
+    if (!getAdminToken()) {
+      window.location.href = "/login";
+    } else {
+      loadUsers().catch((error) => {
+        if (String(error.message).includes("403")) {
+          setStatus("listStatus", "当前账号没有管理员权限", "err");
+          return;
+        }
+        document.body.innerHTML = `<pre class="error-view">账号管理页加载失败\n${escapeHtml(error.message)}</pre>`;
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,495 @@
+INFO:     Started server process [10616]
+INFO:     Waiting for application startup.
+(trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+ERROR:    Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/starlette/routing.py", line 692, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 133, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/main.py", line 12, in lifespan
+    init_db()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 32, in init_db
+    seed_admin()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 282, in seed_admin
+    hashed_password=hash_password(os.environ.get("ADMIN_PASSWORD", "changeme123")),
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/security.py", line 16, in hash_password
+    return pwd_context.hash(plain)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/context.py", line 2258, in hash
+    return record.hash(secret, **kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 779, in hash
+    self.checksum = self._calc_checksum(secret)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 591, in _calc_checksum
+    self._stub_requires_backend()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2254, in _stub_requires_backend
+    cls.set_backend()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2156, in set_backend
+    return owner.set_backend(name, dryrun=dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2163, in set_backend
+    return cls.set_backend(name, dryrun=dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2188, in set_backend
+    cls._set_backend(name, dryrun)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2311, in _set_backend
+    super(SubclassBackendMixin, cls)._set_backend(name, dryrun)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2224, in _set_backend
+    ok = loader(**kwds)
+         ^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 626, in _load_backend_mixin
+    return mixin_cls._finalize_backend_mixin(name, dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 421, in _finalize_backend_mixin
+    if detect_wrap_bug(IDENT_2A):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 380, in detect_wrap_bug
+    if verify(secret, bug_hash):
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 792, in verify
+    return consteq(self._calc_checksum(secret), chk)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 655, in _calc_checksum
+    hash = _bcrypt.hashpw(secret, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: password cannot be longer than 72 bytes, truncate manually if necessary (e.g. my_password[:72])
+
+ERROR:    Application startup failed. Exiting.
+INFO:     Started server process [11131]
+INFO:     Waiting for application startup.
+(trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+ERROR:    Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/starlette/routing.py", line 692, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 133, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/main.py", line 12, in lifespan
+    init_db()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 32, in init_db
+    seed_admin()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 282, in seed_admin
+    hashed_password=hash_password(os.environ.get("ADMIN_PASSWORD", "changeme123")),
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/security.py", line 20, in hash_password
+    return pwd_context.hash(plain)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/context.py", line 2258, in hash
+    return record.hash(secret, **kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 779, in hash
+    self.checksum = self._calc_checksum(secret)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 1226, in _calc_checksum
+    return super(bcrypt_sha256, self)._calc_checksum(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 591, in _calc_checksum
+    self._stub_requires_backend()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2254, in _stub_requires_backend
+    cls.set_backend()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2156, in set_backend
+    return owner.set_backend(name, dryrun=dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2163, in set_backend
+    return cls.set_backend(name, dryrun=dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2188, in set_backend
+    cls._set_backend(name, dryrun)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2311, in _set_backend
+    super(SubclassBackendMixin, cls)._set_backend(name, dryrun)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2224, in _set_backend
+    ok = loader(**kwds)
+         ^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 626, in _load_backend_mixin
+    return mixin_cls._finalize_backend_mixin(name, dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 421, in _finalize_backend_mixin
+    if detect_wrap_bug(IDENT_2A):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 380, in detect_wrap_bug
+    if verify(secret, bug_hash):
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 792, in verify
+    return consteq(self._calc_checksum(secret), chk)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 655, in _calc_checksum
+    hash = _bcrypt.hashpw(secret, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: password cannot be longer than 72 bytes, truncate manually if necessary (e.g. my_password[:72])
+
+ERROR:    Application startup failed. Exiting.
+INFO:     Started server process [11263]
+INFO:     Waiting for application startup.
+(trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+ERROR:    Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/starlette/routing.py", line 692, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 133, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/main.py", line 12, in lifespan
+    init_db()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 32, in init_db
+    seed_admin()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 282, in seed_admin
+    hashed_password=hash_password(os.environ.get("ADMIN_PASSWORD", "changeme123")),
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/security.py", line 20, in hash_password
+    return pwd_context.hash(plain)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/context.py", line 2258, in hash
+    return record.hash(secret, **kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 779, in hash
+    self.checksum = self._calc_checksum(secret)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 1226, in _calc_checksum
+    return super(bcrypt_sha256, self)._calc_checksum(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 591, in _calc_checksum
+    self._stub_requires_backend()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2254, in _stub_requires_backend
+    cls.set_backend()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2156, in set_backend
+    return owner.set_backend(name, dryrun=dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2163, in set_backend
+    return cls.set_backend(name, dryrun=dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2188, in set_backend
+    cls._set_backend(name, dryrun)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2311, in _set_backend
+    super(SubclassBackendMixin, cls)._set_backend(name, dryrun)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2224, in _set_backend
+    ok = loader(**kwds)
+         ^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 626, in _load_backend_mixin
+    return mixin_cls._finalize_backend_mixin(name, dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 421, in _finalize_backend_mixin
+    if detect_wrap_bug(IDENT_2A):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 380, in detect_wrap_bug
+    if verify(secret, bug_hash):
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 792, in verify
+    return consteq(self._calc_checksum(secret), chk)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 655, in _calc_checksum
+    hash = _bcrypt.hashpw(secret, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: password cannot be longer than 72 bytes, truncate manually if necessary (e.g. my_password[:72])
+
+ERROR:    Application startup failed. Exiting.
+INFO:     Started server process [11933]
+INFO:     Waiting for application startup.
+(trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+ERROR:    Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/starlette/routing.py", line 692, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 133, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/main.py", line 12, in lifespan
+    init_db()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 32, in init_db
+    seed_admin()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 282, in seed_admin
+    hashed_password=hash_password(os.environ.get("ADMIN_PASSWORD", "changeme123")),
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/security.py", line 25, in hash_password
+    return pwd_context.hash(plain)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/context.py", line 2258, in hash
+    return record.hash(secret, **kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 779, in hash
+    self.checksum = self._calc_checksum(secret)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 1226, in _calc_checksum
+    return super(bcrypt_sha256, self)._calc_checksum(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 591, in _calc_checksum
+    self._stub_requires_backend()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2254, in _stub_requires_backend
+    cls.set_backend()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2156, in set_backend
+    return owner.set_backend(name, dryrun=dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2163, in set_backend
+    return cls.set_backend(name, dryrun=dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2188, in set_backend
+    cls._set_backend(name, dryrun)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2311, in _set_backend
+    super(SubclassBackendMixin, cls)._set_backend(name, dryrun)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 2224, in _set_backend
+    ok = loader(**kwds)
+         ^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 626, in _load_backend_mixin
+    return mixin_cls._finalize_backend_mixin(name, dryrun)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 421, in _finalize_backend_mixin
+    if detect_wrap_bug(IDENT_2A):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 380, in detect_wrap_bug
+    if verify(secret, bug_hash):
+       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/utils/handlers.py", line 792, in verify
+    return consteq(self._calc_checksum(secret), chk)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/passlib/handlers/bcrypt.py", line 655, in _calc_checksum
+    hash = _bcrypt.hashpw(secret, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: password cannot be longer than 72 bytes, truncate manually if necessary (e.g. my_password[:72])
+
+ERROR:    Application startup failed. Exiting.
+INFO:     Started server process [12782]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:63723 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63723 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:63723 - "GET /admin HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63723 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63724 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63724 - "GET /admin/products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63724 - "GET /api/dashboard/products?q=&page=1&page_size=30&sort_by=last_seen_at&sort_order=desc HTTP/1.1" 200 OK
+INFO:     Started server process [16379]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     127.0.0.1:50071 - "GET /admin/products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50071 - "GET /api/dashboard/products?q=&page=1&page_size=30&sort_by=last_seen_at&sort_order=desc HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50071 - "GET /admin/users HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:50074 - "GET /admin/users HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:50074 - "GET /admin/users HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:50113 - "GET /admin/products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50113 - "GET /api/dashboard/products?q=&page=1&page_size=30&sort_by=last_seen_at&sort_order=desc HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50113 - "GET /admin/products HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50113 - "GET /api/dashboard/products?q=&page=1&page_size=30&sort_by=last_seen_at&sort_order=desc HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50113 - "GET /admin/users HTTP/1.1" 404 Not Found
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [12782]
+INFO:     Started server process [17562]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 146, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3298, in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 449, in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 713, in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 179, in _do_get
+    with util.safe_reraise():
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+    return self._create_connection()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 390, in _create_connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 675, in __init__
+    self.__connect()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 901, in __connect
+    with util.safe_reraise():
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 897, in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 646, in connect
+    return dialect.connect(*cargs, **cparams)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 625, in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/psycopg/connection.py", line 117, in connect
+    raise last_ex.with_traceback(None)
+psycopg.OperationalError: connection is bad: connection to server at "127.0.0.1", port 5432 failed: Operation not permitted
+	Is the server running on that host and accepting TCP/IP connections?
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/starlette/routing.py", line 692, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 133, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/main.py", line 12, in lifespan
+    init_db()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 26, in init_db
+    Base.metadata.create_all(bind=engine)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/sql/schema.py", line 5925, in create_all
+    bind._run_ddl_visitor(
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3248, in _run_ddl_visitor
+    with self.begin() as conn:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 137, in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3238, in begin
+    with self.connect() as conn:
+         ^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3274, in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 148, in __init__
+    Connection._handle_dbapi_exception_noconnection(
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2439, in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 146, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3298, in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 449, in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 713, in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 179, in _do_get
+    with util.safe_reraise():
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+    return self._create_connection()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 390, in _create_connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 675, in __init__
+    self.__connect()
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 901, in __connect
+    with util.safe_reraise():
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 897, in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 646, in connect
+    return dialect.connect(*cargs, **cparams)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 625, in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/psycopg/connection.py", line 117, in connect
+    raise last_ex.with_traceback(None)
+sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection is bad: connection to server at "127.0.0.1", port 5432 failed: Operation not permitted
+	Is the server running on that host and accepting TCP/IP connections?
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+
+ERROR:    Application startup failed. Exiting.
+INFO:     Started server process [17708]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:50619 - "GET /admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50619 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     Started server process [18113]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     127.0.0.1:50620 - "GET /admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50620 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50718 - "POST /api/admin/users HTTP/1.1" 201 Created
+INFO:     127.0.0.1:50718 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50718 - "GET /admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50718 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50849 - "GET /admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50850 - "GET /api/admin/users HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:50759 - "GET /admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50759 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50759 - "GET /admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50759 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     Started server process [18498]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [17708]
+INFO:     Started server process [20465]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:55155 - "GET /admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55155 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55155 - "GET /admin/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55155 - "GET /api/admin/users HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [20465]
