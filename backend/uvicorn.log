@@ -493,3 +493,26 @@ INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
 INFO:     Finished server process [20465]
+INFO:     Started server process [34870]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/starlette/routing.py", line 692, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/codex/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 133, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/homebrew/Cellar/python@3.11/3.11.15/Frameworks/Python.framework/Versions/3.11/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/main.py", line 12, in lifespan
+    init_db()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 33, in init_db
+    backfill_product_sales_values()
+  File "/Users/huangxiaofei/Documents/gogole_export/claude/backend/app/core/db.py", line 182, in backfill_product_sales_values
+    db.query(Product)
+             ^^^^^^^
+NameError: name 'Product' is not defined
+
+ERROR:    Application startup failed. Exiting.

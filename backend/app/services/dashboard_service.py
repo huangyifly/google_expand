@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from sqlalchemy import desc, distinct, func, or_
+from sqlalchemy import desc, distinct, func, nulls_last, or_
 from sqlalchemy.orm import Session
 
 from app.models import CrawlEdge, CrawlRun, Product, ProductSnapshot
@@ -155,6 +155,7 @@ def get_dashboard_products(
         "title": Product.current_title,
         "price_text": Product.current_price_text,
         "sales_text": Product.current_sales_text,
+        "sales_value": Product.current_sales_value,
         "star_rating": Product.current_star_rating,
         "review_count": Product.current_review_count,
         "listing_time": Product.current_listing_time,
@@ -166,8 +167,11 @@ def get_dashboard_products(
     }
     sort_column = sort_mapping.get(sort_by, Product.last_seen_at)
     order_fn = desc if sort_order == "desc" else lambda column: column.asc()
+    sort_expr = order_fn(sort_column)
+    if sort_by == "sales_value":
+        sort_expr = nulls_last(sort_expr)
     rows = (
-        query.order_by(order_fn(sort_column), desc(Product.updated_at))
+        query.order_by(sort_expr, desc(Product.updated_at))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -180,6 +184,7 @@ def get_dashboard_products(
             "full_title": item.current_full_title or "",
             "price_text": item.current_price_text or "",
             "sales_text": item.current_sales_text or "",
+            "sales_value": item.current_sales_value,
             "star_rating": item.current_star_rating or "",
             "review_count": item.current_review_count,
             "listing_time": item.current_listing_time or "",
@@ -235,6 +240,7 @@ def export_products_excel(
         "title": Product.current_title,
         "price_text": Product.current_price_text,
         "sales_text": Product.current_sales_text,
+        "sales_value": Product.current_sales_value,
         "star_rating": Product.current_star_rating,
         "review_count": Product.current_review_count,
         "listing_time": Product.current_listing_time,
@@ -245,7 +251,10 @@ def export_products_excel(
     }
     sort_column = sort_mapping.get(sort_by, Product.last_seen_at)
     order_fn = desc if sort_order == "desc" else lambda col: col.asc()
-    rows = query.order_by(order_fn(sort_column)).all()
+    sort_expr = order_fn(sort_column)
+    if sort_by == "sales_value":
+        sort_expr = nulls_last(sort_expr)
+    rows = query.order_by(sort_expr).all()
 
     # ── 构建 Workbook ─────────────────────────────────────────────────────────
     wb = Workbook()
@@ -253,7 +262,7 @@ def export_products_excel(
     ws.title = "商品数据"
 
     headers = [
-        "商品 ID", "标题", "完整标题", "价格", "销量", "星级", "评价数",
+        "商品 ID", "标题", "完整标题", "价格", "销量文本", "销量值", "星级", "评价数",
         "上架时间", "最长边(cm)", "次长边(cm)", "最短边(cm)", "重量(g)",
         "申报价", "建议零售价", "来源", "最后出现", "更新时间",
     ]
@@ -268,7 +277,7 @@ def export_products_excel(
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     # 列宽
-    col_widths = [20, 36, 50, 12, 14, 10, 10, 20, 14, 14, 14, 12, 12, 14, 14, 20, 20]
+    col_widths = [20, 36, 50, 12, 14, 12, 10, 10, 20, 14, 14, 14, 12, 12, 14, 14, 20, 20]
     for col_idx, width in enumerate(col_widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
 
@@ -282,6 +291,7 @@ def export_products_excel(
             row.current_full_title or "",
             row.current_price_text or "",
             row.current_sales_text or "",
+            row.current_sales_value,
             row.current_star_rating or "",
             row.current_review_count,
             row.current_listing_time or "",
@@ -299,8 +309,8 @@ def export_products_excel(
     # 日期列格式
     date_fmt = "YYYY-MM-DD HH:MM:SS"
     for row_idx in range(2, len(rows) + 2):
-        ws.cell(row=row_idx, column=16).number_format = date_fmt
         ws.cell(row=row_idx, column=17).number_format = date_fmt
+        ws.cell(row=row_idx, column=18).number_format = date_fmt
 
     buf = io.BytesIO()
     wb.save(buf)

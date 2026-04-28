@@ -1,5 +1,6 @@
 from collections.abc import Generator
 import os
+import re
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -8,6 +9,7 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.models import Base
 from app.models.exclusion_keyword import ExclusionKeyword
+from app.models.product import Product
 from app.models.user import User
 
 engine = create_engine(settings.database_url, pool_pre_ping=True)
@@ -29,6 +31,7 @@ def init_db() -> None:
     ensure_product_snapshots_schema()
     backfill_product_raw_fields()
     seed_exclusion_keywords()
+    backfill_product_sales_values()
     seed_admin()
 
 
@@ -77,6 +80,8 @@ def ensure_products_schema() -> None:
             connection.execute(text("ALTER TABLE products ADD COLUMN current_raw_text VARCHAR(4096)"))
         if "current_raw_html" not in existing_columns:
             connection.execute(text("ALTER TABLE products ADD COLUMN current_raw_html TEXT"))
+        if "current_sales_value" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN current_sales_value INTEGER"))
         if "listing_length_cm" not in existing_columns:
             connection.execute(text("ALTER TABLE products ADD COLUMN listing_length_cm NUMERIC(10, 2)"))
         if "listing_width_cm" not in existing_columns:
@@ -100,6 +105,8 @@ def ensure_product_snapshots_schema() -> None:
     with engine.begin() as connection:
         if "listing_time" not in existing_columns:
             connection.execute(text("ALTER TABLE product_snapshots ADD COLUMN listing_time VARCHAR(128)"))
+        if "sales_value" not in existing_columns:
+            connection.execute(text("ALTER TABLE product_snapshots ADD COLUMN sales_value INTEGER"))
         if "raw_html" not in existing_columns:
             connection.execute(text("ALTER TABLE product_snapshots ADD COLUMN raw_html TEXT"))
 
@@ -144,6 +151,48 @@ def backfill_product_raw_fields() -> None:
                 """
             )
         )
+
+
+def parse_sales_value(raw: str | None) -> int | None:
+    if not raw:
+        return None
+    normalized = raw.strip().lower().replace(",", "")
+    matched = re.search(r"(\d+(?:\.\d+)?)", normalized)
+    if not matched:
+        return None
+
+    value = float(matched.group(1))
+    if "k" in normalized or "千" in normalized:
+        value *= 1_000
+    if "万" in normalized:
+        value *= 10_000
+    return int(value)
+
+
+def backfill_product_sales_values() -> None:
+    inspector = inspect(engine)
+    if "products" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("products")}
+    if "current_sales_value" not in existing_columns or "current_sales_text" not in existing_columns:
+        return
+
+    with SessionLocal() as db:
+        rows = (
+            db.query(Product)
+            .filter(Product.current_sales_value.is_(None))
+            .filter(Product.current_sales_text.isnot(None))
+            .all()
+        )
+        changed = False
+        for row in rows:
+            parsed = parse_sales_value(row.current_sales_text)
+            if parsed is not None:
+                row.current_sales_value = parsed
+                changed = True
+        if changed:
+            db.commit()
 
 
 # (keyword, category) 初始种子数据，仅在表为空时插入一次

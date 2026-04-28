@@ -378,7 +378,8 @@
           <option value="goods_id">商品 ID</option>
           <option value="title">标题</option>
           <option value="price_text">价格</option>
-          <option value="sales_text">销量</option>
+          <option value="sales_text">销量文本</option>
+          <option value="sales_value">销量值</option>
           <option value="star_rating">星级</option>
           <option value="review_count">评价数</option>
           <option value="listing_time">上架时间</option>
@@ -411,7 +412,8 @@
               <th>商品 ID</th>
               <th>标题</th>
               <th>价格</th>
-              <th>销量</th>
+              <th>销量文本</th>
+              <th>销量值</th>
               <th>星级</th>
               <th>评价数</th>
               <th>上架时间</th>
@@ -524,6 +526,10 @@
       return value == null || value === "" ? "-" : value;
     }
 
+    function formatNumber(value) {
+      return value == null || value === "" ? "-" : fmt.format(Number(value));
+    }
+
     function pad2(value) {
       return String(value).padStart(2, "0");
     }
@@ -613,6 +619,7 @@
           <td class="title-cell">${safe(item.title)}</td>
           <td>${safe(item.price_text)}</td>
           <td>${safe(item.sales_text)}</td>
+          <td class="mono">${formatNumber(item.sales_value)}</td>
           <td>${safe(item.star_rating)}</td>
           <td>${safe(item.review_count)}</td>
           <td>${formatDateTime(item.listing_time)}</td>
