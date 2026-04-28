@@ -129,6 +129,10 @@
       padding: 14px;
     }
 
+    .logs-card {
+      grid-column: 1 / -1;
+    }
+
     .card-head {
       display: flex;
       align-items: center;
@@ -228,6 +232,13 @@
       color: var(--text-body);
     }
 
+    .agent-cell {
+      max-width: 360px;
+      color: var(--muted);
+      word-break: break-word;
+      line-height: 1.45;
+    }
+
     .compact {
       min-width: 112px;
     }
@@ -266,6 +277,12 @@
     }
 
     .badge.inactive {
+      color: var(--err);
+      background: var(--danger-soft);
+      border-color: var(--danger-line);
+    }
+
+    .badge.fail {
       color: var(--err);
       background: var(--danger-soft);
       border-color: var(--danger-line);
@@ -400,6 +417,33 @@
           </table>
         </div>
       </section>
+
+      <section class="card logs-card">
+        <div class="card-head">
+          <h2>登录日志</h2>
+          <button id="refreshLogsBtn" class="secondary" type="button">刷新日志</button>
+        </div>
+        <div id="logsStatus" class="status-line"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>邮箱</th>
+                <th>用户 ID</th>
+                <th>IP</th>
+                <th>结果</th>
+                <th>失败原因</th>
+                <th>登录时间</th>
+                <th>User-Agent</th>
+              </tr>
+            </thead>
+            <tbody id="logsBody">
+              <tr><td class="empty" colspan="8">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -408,8 +452,10 @@
     const ROLE_KEY = "temu_admin_role";
     const EMAIL_KEY = "temu_admin_email";
     const API_URL = "/api/admin/users";
+    const LOGS_API_URL = "/api/admin/login-logs";
 
     let users = [];
+    let loginLogs = [];
 
     function getAdminToken() {
       return sessionStorage.getItem(TOKEN_KEY);
@@ -536,6 +582,34 @@
       setStatus("listStatus", `共 ${users.length} 个账号`, "ok");
     }
 
+    function renderLoginLogs() {
+      const body = document.getElementById("logsBody");
+      if (!loginLogs.length) {
+        body.innerHTML = `<tr><td class="empty" colspan="8">暂无登录日志</td></tr>`;
+        return;
+      }
+
+      body.innerHTML = loginLogs.map((item) => `
+        <tr>
+          <td class="mono">${item.id}</td>
+          <td class="email-cell">${escapeHtml(item.email)}</td>
+          <td class="mono">${item.user_id == null ? "-" : item.user_id}</td>
+          <td class="mono">${escapeHtml(item.ip_address)}</td>
+          <td><span class="badge ${item.success ? "active" : "fail"}">${item.success ? "成功" : "失败"}</span></td>
+          <td>${escapeHtml(item.failure_reason || "-")}</td>
+          <td class="mono">${formatDateTime(item.created_at)}</td>
+          <td class="agent-cell">${escapeHtml(item.user_agent || "-")}</td>
+        </tr>
+      `).join("");
+    }
+
+    async function loadLoginLogs() {
+      setStatus("logsStatus", "正在加载登录日志...");
+      loginLogs = await fetchJson(`${LOGS_API_URL}?limit=100`);
+      renderLoginLogs();
+      setStatus("logsStatus", `最近 ${loginLogs.length} 条登录记录`, "ok");
+    }
+
     async function createUser(event) {
       event.preventDefault();
       const button = document.getElementById("createBtn");
@@ -555,6 +629,7 @@
         document.getElementById("createForm").reset();
         setStatus("createStatus", "账号已创建", "ok");
         await loadUsers();
+        await loadLoginLogs();
       } catch (error) {
         setStatus("createStatus", error.message, "err");
       } finally {
@@ -585,6 +660,7 @@
         button.textContent = "已保存";
         setStatus("listStatus", "账号已更新", "ok");
         await loadUsers();
+        await loadLoginLogs();
       } catch (error) {
         button.textContent = "保存失败";
         setStatus("listStatus", error.message, "err");
@@ -600,6 +676,9 @@
     document.getElementById("refreshBtn").addEventListener("click", () => {
       loadUsers().catch((error) => setStatus("listStatus", error.message, "err"));
     });
+    document.getElementById("refreshLogsBtn").addEventListener("click", () => {
+      loadLoginLogs().catch((error) => setStatus("logsStatus", error.message, "err"));
+    });
     document.getElementById("usersBody").addEventListener("click", (event) => {
       const button = event.target.closest("[data-save-user]");
       if (!button) return;
@@ -609,9 +688,10 @@
     if (!getAdminToken()) {
       window.location.href = "/login";
     } else {
-      loadUsers().catch((error) => {
+      Promise.all([loadUsers(), loadLoginLogs()]).catch((error) => {
         if (String(error.message).includes("403")) {
           setStatus("listStatus", "当前账号没有管理员权限", "err");
+          setStatus("logsStatus", "当前账号没有管理员权限", "err");
           return;
         }
         document.body.innerHTML = `<pre class="error-view">账号管理页加载失败\n${escapeHtml(error.message)}</pre>`;
