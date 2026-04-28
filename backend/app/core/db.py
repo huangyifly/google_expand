@@ -1,11 +1,14 @@
 from collections.abc import Generator
+import os
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
+from app.core.security import hash_password
 from app.models import Base
 from app.models.exclusion_keyword import ExclusionKeyword
+from app.models.user import User
 
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
@@ -21,10 +24,44 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_user_isolation_schema()
     ensure_products_schema()
     ensure_product_snapshots_schema()
     backfill_product_raw_fields()
     seed_exclusion_keywords()
+    seed_admin()
+
+
+def ensure_user_isolation_schema() -> None:
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    with engine.begin() as connection:
+        if "products" in table_names:
+            product_columns = {column["name"] for column in inspector.get_columns("products")}
+            if "user_id" not in product_columns:
+                connection.execute(text("ALTER TABLE products ADD COLUMN user_id INTEGER"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_products_user_id ON products (user_id)"))
+            connection.execute(text("DROP INDEX IF EXISTS ix_products_goods_id_unique"))
+            connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_products_user_goods_unique ON products (user_id, goods_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_products_goods_id ON products (goods_id)"))
+
+        if "crawl_runs" in table_names:
+            run_columns = {column["name"] for column in inspector.get_columns("crawl_runs")}
+            if "user_id" not in run_columns:
+                connection.execute(text("ALTER TABLE crawl_runs ADD COLUMN user_id INTEGER"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_crawl_runs_user_id ON crawl_runs (user_id)"))
+
+        if "crawl_edges" in table_names:
+            edge_columns = {column["name"] for column in inspector.get_columns("crawl_edges")}
+            if "user_id" not in edge_columns:
+                connection.execute(text("ALTER TABLE crawl_edges ADD COLUMN user_id INTEGER"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_crawl_edges_user_id ON crawl_edges (user_id)"))
+
+        if "product_snapshots" in table_names:
+            snapshot_columns = {column["name"] for column in inspector.get_columns("product_snapshots")}
+            if "user_id" not in snapshot_columns:
+                connection.execute(text("ALTER TABLE product_snapshots ADD COLUMN user_id INTEGER"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_product_snapshots_user_id ON product_snapshots (user_id)"))
 
 
 def ensure_products_schema() -> None:
@@ -233,4 +270,18 @@ def seed_exclusion_keywords() -> None:
             ExclusionKeyword,  # type: ignore[arg-type]
             [{"keyword": kw, "category": cat} for kw, cat in _SEED_KEYWORDS],
         )
+        db.commit()
+
+
+def seed_admin() -> None:
+    with SessionLocal() as db:
+        if db.query(User).count() > 0:
+            return
+        admin = User(
+            email=os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower(),
+            hashed_password=hash_password(os.environ.get("ADMIN_PASSWORD", "changeme123")),
+            role="admin",
+            is_active=True,
+        )
+        db.add(admin)
         db.commit()

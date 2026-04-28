@@ -15,6 +15,7 @@ class CrawlEdge(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     run_uuid: Mapped[str | None] = mapped_column(ForeignKey("crawl_runs.run_uuid"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     from_goods_id: Mapped[str] = mapped_column(String(64), nullable=False)
     to_goods_id: Mapped[str] = mapped_column(String(64), nullable=False)
     relation_type: Mapped[str] = mapped_column(String(32), default="related", nullable=False)

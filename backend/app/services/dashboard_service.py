@@ -7,6 +7,11 @@ from sqlalchemy import desc, distinct, func, or_
 from sqlalchemy.orm import Session
 
 from app.models import CrawlEdge, CrawlRun, Product, ProductSnapshot
+from app.models.user import User
+
+
+def is_admin(user: User) -> bool:
+    return user.role == "admin"
 
 
 def decimal_to_text(value) -> str:
@@ -15,25 +20,35 @@ def decimal_to_text(value) -> str:
     return format(value, "f").rstrip("0").rstrip(".")
 
 
-def get_dashboard_overview(db: Session) -> dict:
-    total_products = db.query(func.count(Product.id)).scalar() or 0
-    total_snapshots = db.query(func.count(ProductSnapshot.id)).scalar() or 0
-    total_runs = db.query(func.count(CrawlRun.id)).scalar() or 0
+def get_dashboard_overview(db: Session, current_user: User) -> dict:
+    product_q = db.query(Product)
+    snapshot_q = db.query(ProductSnapshot)
+    run_q = db.query(CrawlRun)
+    edge_q = db.query(CrawlEdge)
+    if not is_admin(current_user):
+        product_q = product_q.filter(Product.user_id == current_user.id)
+        snapshot_q = snapshot_q.filter(ProductSnapshot.user_id == current_user.id)
+        run_q = run_q.filter(CrawlRun.user_id == current_user.id)
+        edge_q = edge_q.filter(CrawlEdge.user_id == current_user.id)
+
+    total_products = product_q.with_entities(func.count(Product.id)).scalar() or 0
+    total_snapshots = snapshot_q.with_entities(func.count(ProductSnapshot.id)).scalar() or 0
+    total_runs = run_q.with_entities(func.count(CrawlRun.id)).scalar() or 0
     completed_runs = (
-        db.query(func.count(CrawlRun.id))
+        run_q.with_entities(func.count(CrawlRun.id))
         .filter(CrawlRun.status == "completed")
         .scalar()
         or 0
     )
-    total_edges = db.query(func.count(CrawlEdge.id)).scalar() or 0
+    total_edges = edge_q.with_entities(func.count(CrawlEdge.id)).scalar() or 0
     related_sources = (
-        db.query(func.count(ProductSnapshot.id))
+        snapshot_q.with_entities(func.count(ProductSnapshot.id))
         .filter(ProductSnapshot.source == "related")
         .scalar()
         or 0
     )
-    distinct_goods = db.query(func.count(distinct(ProductSnapshot.goods_id))).scalar() or 0
-    latest_snapshot = db.query(func.max(ProductSnapshot.scraped_at)).scalar()
+    distinct_goods = snapshot_q.with_entities(func.count(distinct(ProductSnapshot.goods_id))).scalar() or 0
+    latest_snapshot = snapshot_q.with_entities(func.max(ProductSnapshot.scraped_at)).scalar()
 
     return {
         "total_products": total_products,
@@ -47,8 +62,11 @@ def get_dashboard_overview(db: Session) -> dict:
     }
 
 
-def get_dashboard_runs(db: Session, limit: int = 20) -> list[dict]:
-    runs = db.query(CrawlRun).order_by(desc(CrawlRun.started_at)).limit(limit).all()
+def get_dashboard_runs(db: Session, current_user: User, limit: int = 20) -> list[dict]:
+    query = db.query(CrawlRun)
+    if not is_admin(current_user):
+        query = query.filter(CrawlRun.user_id == current_user.id)
+    runs = query.order_by(desc(CrawlRun.started_at)).limit(limit).all()
     return [
         {
             "run_uuid": item.run_uuid,
@@ -62,9 +80,12 @@ def get_dashboard_runs(db: Session, limit: int = 20) -> list[dict]:
     ]
 
 
-def get_dashboard_sources(db: Session) -> list[dict]:
+def get_dashboard_sources(db: Session, current_user: User) -> list[dict]:
+    query = db.query(ProductSnapshot.source, func.count(ProductSnapshot.id))
+    if not is_admin(current_user):
+        query = query.filter(ProductSnapshot.user_id == current_user.id)
     rows = (
-        db.query(ProductSnapshot.source, func.count(ProductSnapshot.id))
+        query
         .group_by(ProductSnapshot.source)
         .order_by(desc(func.count(ProductSnapshot.id)))
         .all()
@@ -78,14 +99,17 @@ def get_dashboard_sources(db: Session) -> list[dict]:
     ]
 
 
-def get_dashboard_edges(db: Session, limit: int = 20) -> list[dict]:
-    rows = (
-        db.query(
+def get_dashboard_edges(db: Session, current_user: User, limit: int = 20) -> list[dict]:
+    query = db.query(
             CrawlEdge.from_goods_id,
             CrawlEdge.to_goods_id,
             CrawlEdge.relation_type,
             func.count(CrawlEdge.id).label("count"),
         )
+    if not is_admin(current_user):
+        query = query.filter(CrawlEdge.user_id == current_user.id)
+    rows = (
+        query
         .group_by(CrawlEdge.from_goods_id, CrawlEdge.to_goods_id, CrawlEdge.relation_type)
         .order_by(desc(func.count(CrawlEdge.id)))
         .limit(limit)
@@ -104,6 +128,7 @@ def get_dashboard_edges(db: Session, limit: int = 20) -> list[dict]:
 
 def get_dashboard_products(
     db: Session,
+    current_user: User,
     keyword: str = "",
     page: int = 1,
     page_size: int = 30,
@@ -111,6 +136,8 @@ def get_dashboard_products(
     sort_order: str = "desc",
 ) -> dict:
     query = db.query(Product)
+    if not is_admin(current_user):
+        query = query.filter(Product.user_id == current_user.id)
     if keyword.strip():
         pattern = f"%{keyword.strip()}%"
         query = query.filter(
@@ -184,12 +211,15 @@ def get_dashboard_products(
 
 def export_products_excel(
     db: Session,
+    current_user: User,
     keyword: str = "",
     sort_by: str = "last_seen_at",
     sort_order: str = "desc",
 ) -> bytes:
     """查询全量（无分页）商品并生成 Excel 文件，返回二进制内容。"""
     query = db.query(Product)
+    if not is_admin(current_user):
+        query = query.filter(Product.user_id == current_user.id)
     if keyword.strip():
         pattern = f"%{keyword.strip()}%"
         query = query.filter(

@@ -23,6 +23,14 @@ const cfgBatch = document.getElementById('cfgBatch');
 const cfgLimit = document.getElementById('cfgLimit');
 const cfgRemoveLocalWarehouse = document.getElementById('cfgRemoveLocalWarehouse');
 const cfgLogVisible = document.getElementById('cfgLogVisible');
+const loginPanel = document.getElementById('loginPanel');
+const mainPanel = document.getElementById('mainPanel');
+const loginEmail = document.getElementById('loginEmail');
+const loginPassword = document.getElementById('loginPassword');
+const loginBtn = document.getElementById('loginBtn');
+const loginError = document.getElementById('loginError');
+const logoutBtn = document.getElementById('logoutBtn');
+const userInfo = document.getElementById('userInfo');
 
 const LOG_VISIBLE_KEY = 'temu_log_visible';
 
@@ -31,6 +39,39 @@ chrome.storage.local.get([LOG_VISIBLE_KEY], (result) => {
   const visible = result[LOG_VISIBLE_KEY] !== false; // 默认显示
   if (cfgLogVisible) cfgLogVisible.checked = visible;
 });
+
+function callRuntime(action, extra = {}) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action, ...extra }, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ ok: false, error: chrome.runtime.lastError.message || '扩展通信失败' });
+        return;
+      }
+      resolve(response || { ok: false, error: 'empty response' });
+    });
+  });
+}
+
+function setAuthUI(authed, user = null) {
+  if (loginPanel) loginPanel.style.display = authed ? 'none' : '';
+  if (mainPanel) mainPanel.style.display = authed ? '' : 'none';
+  if (userInfo) {
+    userInfo.textContent = authed && user
+      ? `已登录：${user.email || '-'}（${user.role || 'user'}）`
+      : '';
+  }
+  if (loginError) {
+    loginError.style.display = 'none';
+    loginError.textContent = '';
+  }
+}
+
+async function initAuth() {
+  const result = await callRuntime('getAuthUser');
+  const authed = Boolean(result?.ok);
+  setAuthUI(authed, result?.user || null);
+  return authed;
+}
 
 let isRunning = false;
 
@@ -415,5 +456,48 @@ cfgRemoveLocalWarehouse?.addEventListener('change', () => {
   });
 });
 
-// 入口：popup 打开时立即拉一次 state 做首屏渲染。
-syncFromState();
+loginBtn?.addEventListener('click', async () => {
+  const email = String(loginEmail?.value || '').trim();
+  const password = String(loginPassword?.value || '');
+  if (!email || !password) {
+    if (loginError) {
+      loginError.textContent = '请输入邮箱和密码';
+      loginError.style.display = '';
+    }
+    return;
+  }
+
+  loginBtn.disabled = true;
+  const previous = loginBtn.textContent;
+  loginBtn.textContent = '登录中...';
+  const result = await callRuntime('login', { email, password });
+  loginBtn.disabled = false;
+  loginBtn.textContent = previous;
+
+  if (!result?.ok) {
+    if (loginError) {
+      loginError.textContent = result?.error || result?.detail || '登录失败';
+      loginError.style.display = '';
+    }
+    return;
+  }
+
+  if (loginPassword) loginPassword.value = '';
+  const authed = await initAuth();
+  if (authed) {
+    syncFromState();
+  }
+});
+
+logoutBtn?.addEventListener('click', async () => {
+  await callRuntime('logout');
+  setAuthUI(false, null);
+});
+
+async function init() {
+  const authed = await initAuth();
+  if (!authed) return;
+  syncFromState();
+}
+
+init();

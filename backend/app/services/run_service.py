@@ -3,10 +3,11 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models import CrawlRun
+from app.models.user import User
 
 
-def start_run(db: Session) -> CrawlRun:
-    crawl_run = CrawlRun()
+def start_run(db: Session, current_user: User) -> CrawlRun:
+    crawl_run = CrawlRun(user_id=current_user.id)
     db.add(crawl_run)
     db.commit()
     db.refresh(crawl_run)
@@ -15,12 +16,16 @@ def start_run(db: Session) -> CrawlRun:
 
 def finish_run(
     db: Session,
+    current_user: User,
     run_uuid: str,
     status: str,
     total_collected: int | None,
     notes: str | None,
 ) -> CrawlRun | None:
-    crawl_run = db.query(CrawlRun).filter(CrawlRun.run_uuid == run_uuid).one_or_none()
+    query = db.query(CrawlRun).filter(CrawlRun.run_uuid == run_uuid)
+    if current_user.role != "admin":
+        query = query.filter(CrawlRun.user_id == current_user.id)
+    crawl_run = query.one_or_none()
     if crawl_run is None:
         return None
 

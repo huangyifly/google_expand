@@ -404,10 +404,41 @@
   </div>
 
   <script>
+    const TOKEN_KEY = "temu_admin_token";
+    const ROLE_KEY = "temu_admin_role";
+    const EMAIL_KEY = "temu_admin_email";
     const fmt = new Intl.NumberFormat("zh-CN");
 
+    function getAdminToken() {
+      return sessionStorage.getItem(TOKEN_KEY);
+    }
+
+    function authFetch(url, options = {}) {
+      const token = getAdminToken();
+      if (!token) {
+        window.location.href = "/login";
+        return Promise.reject(new Error("未登录"));
+      }
+      return fetch(url, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${token}`,
+        },
+      }).then((res) => {
+        if (res.status === 401) {
+          sessionStorage.removeItem(TOKEN_KEY);
+          sessionStorage.removeItem(ROLE_KEY);
+          sessionStorage.removeItem(EMAIL_KEY);
+          window.location.href = "/login";
+          throw new Error("登录已过期");
+        }
+        return res;
+      });
+    }
+
     async function fetchJson(url) {
-      const res = await fetch(url);
+      const res = await authFetch(url);
       if (!res.ok) throw new Error(`${url} -> ${res.status}`);
       return res.json();
     }
@@ -499,6 +530,10 @@
     }
 
     async function boot() {
+      if (!getAdminToken()) {
+        window.location.href = "/login";
+        return;
+      }
       const [overview, runs, sources, edges] = await Promise.all([
         fetchJson("/api/dashboard/overview"),
         fetchJson("/api/dashboard/runs"),

@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Index, Numeric, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -9,9 +9,13 @@ from app.models.base import Base, TimestampMixin
 
 class Product(TimestampMixin, Base):
     __tablename__ = "products"
-    __table_args__ = (Index("ix_products_goods_id_unique", "goods_id", unique=True),)
+    __table_args__ = (
+        Index("ix_products_user_goods_unique", "user_id", "goods_id", unique=True),
+        Index("ix_products_goods_id", "goods_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     goods_id: Mapped[str] = mapped_column(String(64), nullable=False)
     current_title: Mapped[str | None] = mapped_column(String(255))
     current_full_title: Mapped[str | None] = mapped_column(String(1024))

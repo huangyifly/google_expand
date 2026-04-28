@@ -4,11 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b50063cc-7a39-425c-bc22-a5aa7af0d224" name="更改" comment="">
-      <change beforePath="$PROJECT_DIR$/../backend/app/api/routes/dashboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/app/api/routes/dashboard.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/app/web/admin.html" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/app/web/admin.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../backend/app/web/products.html" beforeDir="false" afterPath="$PROJECT_DIR$/../backend/app/web/products.html" afterDir="false" />
-    </list>
+    <list default="true" id="b50063cc-7a39-425c-bc22-a5aa7af0d224" name="更改" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -74,7 +70,7 @@
       <workItem from="1776915037117" duration="6457000" />
       <workItem from="1776998698195" duration="24847000" />
       <workItem from="1777108938933" duration="648000" />
-      <workItem from="1777125319654" duration="9484000" />
+      <workItem from="1777125319654" duration="17474000" />
     </task>
     <servers />
   </component>

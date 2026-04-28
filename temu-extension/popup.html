@@ -1,420 +1,524 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    <meta charset="UTF-8"/>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
-    :root {
-      --bg: #f4f1eb;
-      --surface: #fffdf9;
-      --surface-soft: #f8f4ed;
-      --line: #e5ddd0;
-      --line-strong: #d6cab8;
-      --text: #241f19;
-      --text-muted: #6b5f52;
-      --primary: #2f4858;
-      --primary-strong: #243946;
-      --cta: #b98546;
-      --cta-strong: #9f713a;
-      --danger: #dc2626;
-      --success: #15803d;
-    }
+        :root {
+            --bg: #f4f1eb;
+            --surface: #fffdf9;
+            --surface-soft: #f8f4ed;
+            --line: #e5ddd0;
+            --line-strong: #d6cab8;
+            --text: #241f19;
+            --text-muted: #6b5f52;
+            --primary: #2f4858;
+            --primary-strong: #243946;
+            --cta: #b98546;
+            --cta-strong: #9f713a;
+            --danger: #dc2626;
+            --success: #15803d;
+        }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-    body {
-      width: 340px;
-      font-family: "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
-      font-size: 13px;
-      line-height: 1.4;
-      color: var(--text);
-      background:
-        radial-gradient(circle at 88% -10%, rgba(185, 133, 70, 0.16), transparent 34%),
-        radial-gradient(circle at -10% 108%, rgba(47, 72, 88, 0.12), transparent 46%),
-        var(--bg);
-    }
+        body {
+            width: 340px;
+            font-family: "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+            font-size: 13px;
+            line-height: 1.4;
+            color: var(--text);
+            background: radial-gradient(circle at 88% -10%, rgba(185, 133, 70, 0.16), transparent 34%),
+            radial-gradient(circle at -10% 108%, rgba(47, 72, 88, 0.12), transparent 46%),
+            var(--bg);
+        }
 
-    .topbar {
-      padding: 14px;
-      color: #fff;
-      background: var(--primary);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.24);
-    }
+        .topbar {
+            padding: 14px;
+            color: #fff;
+            background: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.24);
+        }
 
-    .topbar h3 {
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-    }
+        .topbar h3 {
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
 
-    .topbar .ver {
-      font-size: 11px;
-      font-weight: 600;
-      opacity: 0.9;
-    }
+        .topbar .ver {
+            font-size: 11px;
+            font-weight: 600;
+            opacity: 0.9;
+        }
 
-    .phase-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 11px 14px;
-      background: rgba(255, 255, 255, 0.9);
-      border-bottom: 1px solid var(--line);
-    }
+        .login-panel {
+            padding: 14px;
+            border-top: 1px solid var(--line);
+            background: var(--surface);
+        }
 
-    .phase-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      background: #cbd5e1;
-      flex-shrink: 0;
-    }
+        .login-title {
+            margin: 0 0 10px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text);
+        }
 
-    .phase-dot.idle { background: #94a3b8; }
-    .phase-dot.listing { background: #b98546; animation: pulse 1s infinite; }
-    .phase-dot.filtering { background: #5f7a8d; animation: pulse 1s infinite; }
-    .phase-dot.navigating { background: #7d8f6a; animation: pulse 1s infinite; }
-    .phase-dot.detail { background: #2f4858; animation: pulse 1s infinite; }
-    .phase-dot.related { background: #8b6f47; animation: pulse 1s infinite; }
-    .phase-dot.done { background: #16a34a; }
+        .login-row {
+            margin-bottom: 9px;
+        }
 
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.38} }
+        .login-row label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
 
-    #phaseText { font-weight: 700; }
+        .login-row input {
+            width: 100%;
+            padding: 8px 9px;
+            border: 1px solid var(--line-strong);
+            border-radius: 9px;
+            background: var(--surface);
+            font-size: 12px;
+            color: var(--text);
+        }
 
-    #phaseDesc {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-left: auto;
-    }
+        #loginError {
+            min-height: 16px;
+            margin-bottom: 8px;
+            font-size: 11px;
+            line-height: 1.4;
+            color: var(--danger);
+            display: none;
+        }
 
-    .phase-count {
-      margin-left: 8px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: var(--surface-soft);
-      color: var(--primary);
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-      flex-shrink: 0;
-    }
+        .phase-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 14px;
+            background: rgba(255, 255, 255, 0.9);
+            border-bottom: 1px solid var(--line);
+        }
 
-    .body { padding: 0 14px 14px; }
+        .phase-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: #cbd5e1;
+            flex-shrink: 0;
+        }
 
-    #statusMsg {
-      min-height: 16px;
-      margin-bottom: 9px;
-      font-size: 11px;
-      line-height: 1.45;
-      color: var(--text-muted);
-    }
+        .phase-dot.idle {
+            background: #94a3b8;
+        }
 
-    #statusMsg.ok { color: var(--success); }
-    #statusMsg.err { color: var(--danger); }
+        .phase-dot.listing {
+            background: #b98546;
+            animation: pulse 1s infinite;
+        }
 
-    .cfg-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
+        .phase-dot.filtering {
+            background: #5f7a8d;
+            animation: pulse 1s infinite;
+        }
 
-    .primary-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
+        .phase-dot.navigating {
+            background: #7d8f6a;
+            animation: pulse 1s infinite;
+        }
 
-    .cfg-item label {
-      display: block;
-      margin-bottom: 5px;
-      font-size: 11px;
-      color: var(--text-muted);
-    }
+        .phase-dot.detail {
+            background: #2f4858;
+            animation: pulse 1s infinite;
+        }
 
-    .cfg-item input {
-      width: 100%;
-      padding: 8px 9px;
-      border: 1px solid var(--line-strong);
-      border-radius: 9px;
-      background: var(--surface);
-      text-align: center;
-      font-size: 12px;
-      color: var(--text);
-    }
+        .phase-dot.related {
+            background: #8b6f47;
+            animation: pulse 1s infinite;
+        }
 
-    .cfg-item select {
-      width: 100%;
-      padding: 8px 9px;
-      border: 1px solid var(--line-strong);
-      border-radius: 9px;
-      background: var(--surface);
-      font-size: 12px;
-      color: var(--text);
-      cursor: pointer;
-    }
+        .phase-dot.done {
+            background: #16a34a;
+        }
 
-    .cfg-item input:focus-visible,
-    .cfg-item select:focus-visible,
-    button:focus-visible {
-      outline: 2px solid rgba(185, 133, 70, 0.45);
-      outline-offset: 1px;
-    }
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1
+            }
+            50% {
+                opacity: .38
+            }
+        }
 
-    .cfg-item input:disabled {
-      background: #f8fafc;
-      color: #94a3b8;
-    }
+        #phaseText {
+            font-weight: 700;
+        }
 
-    .cfg-item select:disabled {
-      background: #f8fafc;
-      color: #94a3b8;
-      cursor: not-allowed;
-    }
+        #phaseDesc {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
 
-    .workflow-card {
-      margin-bottom: 12px;
-      padding: 11px 12px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: var(--surface);
-    }
+        .phase-count {
+            margin-left: 8px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: var(--surface-soft);
+            color: var(--primary);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            flex-shrink: 0;
+        }
 
-    .workflow-title {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-bottom: 5px;
-    }
+        .body {
+            padding: 0 14px 14px;
+        }
 
-    .workflow-current {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--text);
-      letter-spacing: 0.01em;
-    }
+        #statusMsg {
+            min-height: 16px;
+            margin-bottom: 9px;
+            font-size: 11px;
+            line-height: 1.45;
+            color: var(--text-muted);
+        }
 
-    .workflow-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 8px;
-      font-size: 11px;
-      color: var(--text-muted);
-    }
+        #statusMsg.ok {
+            color: var(--success);
+        }
 
-    .workflow-pill {
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: rgba(47, 72, 88, 0.12);
-      color: var(--primary);
-      font-weight: 700;
-    }
+        #statusMsg.err {
+            color: var(--danger);
+        }
 
-    .cfg-switch {
-      grid-column: 1 / -1;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--surface-soft);
-    }
+        .cfg-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
 
-    .cfg-switch .meta {
-      min-width: 0;
-    }
+        .primary-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
 
-    .cfg-switch .title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-    }
+        .cfg-item label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
 
-    .cfg-switch .desc {
-      margin-top: 3px;
-      font-size: 10px;
-      line-height: 1.4;
-      color: var(--text-muted);
-    }
+        .cfg-item input {
+            width: 100%;
+            padding: 8px 9px;
+            border: 1px solid var(--line-strong);
+            border-radius: 9px;
+            background: var(--surface);
+            text-align: center;
+            font-size: 12px;
+            color: var(--text);
+        }
 
-    .cfg-switch input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      flex-shrink: 0;
-      accent-color: var(--primary);
-      cursor: pointer;
-    }
+        .cfg-item select {
+            width: 100%;
+            padding: 8px 9px;
+            border: 1px solid var(--line-strong);
+            border-radius: 9px;
+            background: var(--surface);
+            font-size: 12px;
+            color: var(--text);
+            cursor: pointer;
+        }
 
-    .more-wrap {
-      margin: 8px 0 10px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.68);
-      overflow: hidden;
-    }
+        .cfg-item input:focus-visible,
+        .cfg-item select:focus-visible,
+        button:focus-visible,
+        .login-row input:focus-visible {
+            outline: 2px solid rgba(185, 133, 70, 0.45);
+            outline-offset: 1px;
+        }
 
-    .more-summary {
-      list-style: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 9px 11px;
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-      background: var(--surface-soft);
-      border-bottom: 1px solid transparent;
-    }
+        .cfg-item input:disabled {
+            background: #f8fafc;
+            color: #94a3b8;
+        }
 
-    .more-summary::-webkit-details-marker { display: none; }
+        .cfg-item select:disabled {
+            background: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
 
-    .more-summary::after {
-      content: "▾";
-      color: var(--text-muted);
-      font-size: 12px;
-      transition: transform 0.16s ease;
-    }
+        .cfg-switch {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--surface-soft);
+        }
 
-    .more-wrap[open] .more-summary {
-      border-bottom-color: var(--line);
-    }
+        .cfg-switch .meta {
+            min-width: 0;
+        }
 
-    .more-wrap[open] .more-summary::after {
-      transform: rotate(180deg);
-    }
+        .cfg-switch .title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text);
+        }
 
-    .more-content {
-      padding: 10px;
-    }
+        .cfg-switch .desc {
+            margin-top: 3px;
+            font-size: 10px;
+            line-height: 1.4;
+            color: var(--text-muted);
+        }
 
-    button {
-      width: 100%;
-      margin-bottom: 7px;
-      padding: 10px 12px;
-      border: none;
-      border-radius: 10px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 700;
-      transition: background-color 0.18s ease, opacity 0.18s ease;
-    }
+        .cfg-switch input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
 
-    button:hover:not(:disabled) { opacity: 0.92; }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .more-wrap {
+            margin: 8px 0 10px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.68);
+            overflow: hidden;
+        }
 
-    .btn-main { color: #fff; background: var(--cta); }
-    .btn-main:hover:not(:disabled) { background: var(--cta-strong); }
-    .btn-main.running { background: #64748b; }
-    .btn-listing { color: #fff; background: var(--primary); }
-    .btn-listing:hover:not(:disabled) { background: var(--primary-strong); }
-    .btn-clear {
-      color: var(--text);
-      background: #f1ebe1;
-      border: 1px solid var(--line);
-      margin-bottom: 0;
-    }
-    .btn-clear:hover:not(:disabled) { background: #e6dccd; }
+        .more-summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 11px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text);
+            background: var(--surface-soft);
+            border-bottom: 1px solid transparent;
+        }
 
-    .hint {
-      margin-top: 8px;
-      font-size: 10px;
-      line-height: 1.45;
-      color: var(--text-muted);
-      text-align: center;
-    }
+        .more-summary::-webkit-details-marker {
+            display: none;
+        }
 
-    @media (prefers-reduced-motion: reduce) {
-      .phase-dot.listing,
-      .phase-dot.filtering,
-      .phase-dot.navigating,
-      .phase-dot.detail,
-      .phase-dot.related {
-        animation: none;
-      }
+        .more-summary::after {
+            content: "▾";
+            color: var(--text-muted);
+            font-size: 12px;
+            transition: transform 0.16s ease;
+        }
 
-      button {
-        transition: none;
-      }
-    }
-  </style>
+        .more-wrap[open] .more-summary {
+            border-bottom-color: var(--line);
+        }
+
+        .more-wrap[open] .more-summary::after {
+            transform: rotate(180deg);
+        }
+
+        .more-content {
+            padding: 10px;
+        }
+
+        button {
+            width: 100%;
+            margin-bottom: 7px;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 700;
+            transition: background-color 0.18s ease, opacity 0.18s ease;
+        }
+
+        button:hover:not(:disabled) {
+            opacity: 0.92;
+        }
+
+        button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .btn-main {
+            color: #fff;
+            background: var(--cta);
+        }
+
+        .btn-main:hover:not(:disabled) {
+            background: var(--cta-strong);
+        }
+
+        .btn-main.running {
+            background: #64748b;
+        }
+
+        .btn-listing {
+            color: #fff;
+            background: var(--primary);
+        }
+
+        .btn-listing:hover:not(:disabled) {
+            background: var(--primary-strong);
+        }
+
+        .btn-clear {
+            color: var(--text);
+            background: #f1ebe1;
+            border: 1px solid var(--line);
+            margin-bottom: 0;
+        }
+
+        .btn-clear:hover:not(:disabled) {
+            background: #e6dccd;
+        }
+
+        .auth-meta {
+            margin-top: 8px;
+            margin-bottom: 6px;
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .hint {
+            margin-top: 8px;
+            font-size: 10px;
+            line-height: 1.45;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .phase-dot.listing,
+            .phase-dot.filtering,
+            .phase-dot.navigating,
+            .phase-dot.detail,
+            .phase-dot.related {
+                animation: none;
+            }
+
+            button {
+                transition: none;
+            }
+        }
+    </style>
 </head>
 <body>
-  <div class="topbar">
+<div class="topbar">
     <h3>Temu 数据采集</h3>
     <span class="ver">v5.0</span>
-  </div>
+</div>
 
-  <div class="phase-bar">
-    <div class="phase-dot idle" id="phaseDot"></div>
-    <span id="phaseText">空闲</span>
-    <span id="phaseDesc">尚未开始</span>
-    <span class="phase-count">已采集 <span id="sTotal">0</span></span>
-  </div>
+<div id="loginPanel" class="login-panel" style="display:none;">
+    <h4 class="login-title">登录后使用插件</h4>
+    <div class="login-row">
+        <label for="loginEmail">邮箱</label>
+        <input type="email" id="loginEmail" placeholder="your@email.com"/>
+    </div>
+    <div class="login-row">
+        <label for="loginPassword">密码</label>
+        <input type="password" id="loginPassword" placeholder="请输入密码"/>
+    </div>
+    <div id="loginError"></div>
+    <button id="loginBtn" class="btn-main">登录</button>
+</div>
 
-  <div class="body">
-    <div id="statusMsg">打开 Temu 商品页面后点击开始采集</div>
-
-    <div class="primary-grid">
-      <div class="cfg-item">
-        <label>采集模式</label>
-        <select id="cfgCollectionMode">
-          <option value="CONSERVATIVE">保守辅助模式</option>
-          <option value="AGGRESSIVE">激进自动模式</option>
-        </select>
-      </div>
+<div id="mainPanel" style="display:none;">
+    <div class="phase-bar">
+        <div class="phase-dot idle" id="phaseDot"></div>
+        <span id="phaseText">空闲</span>
+        <span id="phaseDesc">尚未开始</span>
+        <span class="phase-count">已采集 <span id="sTotal">0</span></span>
     </div>
 
-    <button id="btnMain" class="btn-main">开始采集</button>
-    <button id="btnOneClickListing" class="btn-listing">执行一键上架</button>
+    <div class="body">
+        <div id="statusMsg">打开 Temu 商品页面后点击开始采集</div>
 
-    <details class="more-wrap">
-      <summary class="more-summary">更多设置</summary>
-      <div class="more-content">
-        <div class="cfg-grid">
-          <div class="cfg-item">
-            <label>加载间隔（秒）</label>
-            <input type="number" id="cfgInterval" value="2" min="2" max="60" />
-          </div>
-          <div class="cfg-item">
-            <label>初始批次（条）</label>
-            <input type="number" id="cfgBatch" value="50" min="20" max="3000" />
-          </div>
-          <div class="cfg-item" style="grid-column: 1 / -1;">
-            <label>总上限（条）</label>
-            <input type="number" id="cfgLimit" value="10000" min="100" />
-          </div>
-          <div class=”cfg-switch”>
-            <div class=”meta”>
-              <div class=”title”>去除本地仓商品</div>
-              <div class=”desc”>采集前自动删除页面中带”本地仓”标识的商品卡片。</div>
+        <div class="primary-grid">
+            <div class="cfg-item">
+                <label>采集模式</label>
+                <select id="cfgCollectionMode">
+                    <option value="CONSERVATIVE">保守辅助模式</option>
+                    <option value="AGGRESSIVE">激进自动模式</option>
+                </select>
             </div>
-            <input type=”checkbox” id=”cfgRemoveLocalWarehouse” checked />
-          </div>
-          <div class=”cfg-switch”>
-            <div class=”meta”>
-              <div class=”title”>显示日志面板</div>
-              <div class=”desc”>控制右下角操作时间线面板的显示与隐藏。</div>
-            </div>
-            <input type=”checkbox” id=”cfgLogVisible” checked />
-          </div>
         </div>
-        <button id="btnClear" class="btn-clear">清空数据</button>
-      </div>
-    </details>
 
-    <div class="hint">采集与上架是两条独立链路；打开商品详情页后可手动执行一键上架。</div>
-  </div>
+        <button id="btnMain" class="btn-main">开始采集</button>
+        <button id="btnOneClickListing" class="btn-listing">执行一键上架</button>
 
-  <script src="popup.js"></script>
+        <details class="more-wrap">
+            <summary class="more-summary">更多设置</summary>
+            <div class="more-content">
+                <div class="cfg-grid">
+                    <div class="cfg-item">
+                        <label>加载间隔（秒）</label>
+                        <input type="number" id="cfgInterval" value="2" min="2" max="60"/>
+                    </div>
+                    <div class="cfg-item">
+                        <label>初始批次（条）</label>
+                        <input type="number" id="cfgBatch" value="50" min="20" max="3000"/>
+                    </div>
+                    <div class="cfg-item" style="grid-column: 1 / -1;">
+                        <label>总上限（条）</label>
+                        <input type="number" id="cfgLimit" value="10000" min="100"/>
+                    </div>
+                    <div class="cfg-switch">
+                        <div class="meta">
+                            <div class="title">去除本地仓商品</div>
+                            <div class="desc">采集前自动删除页面中带“本地仓”标识的商品卡片。</div>
+                        </div>
+                        <input type="checkbox" id="cfgRemoveLocalWarehouse" checked/>
+                    </div>
+                    <div class="cfg-switch">
+                        <div class="meta">
+                            <div class="title">显示日志面板</div>
+                            <div class="desc">控制右下角操作时间线面板的显示与隐藏。</div>
+                        </div>
+                        <input type="checkbox" id="cfgLogVisible"/>
+                    </div>
+                </div>
+                <button id="btnClear" class="btn-clear">清空数据</button>
+                <div id="userInfo" class="auth-meta"></div>
+                <button id="logoutBtn" class="btn-clear">退出登录</button>
+            </div>
+        </details>
+
+        <div class="hint">采集与上架是两条独立链路；打开商品详情页后可手动执行一键上架。</div>
+    </div>
+</div>
+
+<script src="popup.js"></script>
 </body>
 </html>

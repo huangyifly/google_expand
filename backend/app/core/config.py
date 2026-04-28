@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = True
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/temu_scraper"
+    jwt_secret: str = "CHANGE_ME_IN_PRODUCTION"
+    jwt_expire_minutes: int = 60 * 24 * 7
 
     model_config = SettingsConfigDict(
         env_file=".env",

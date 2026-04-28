@@ -7,22 +7,23 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models import CrawlEdge, Product, ProductSnapshot
+from app.models.user import User
 from app.schemas.upload import UploadBatchRequest, UploadEdge, UploadItem
 
 
-def ingest_batch(db: Session, payload: UploadBatchRequest) -> dict[str, int | str | bool | None]:
+def ingest_batch(db: Session, payload: UploadBatchRequest, current_user: User) -> dict[str, int | str | bool | None]:
     upserted_products = 0
     inserted_snapshots = 0
     inserted_edges = 0
 
     for item in payload.items:
-        upsert_product(db, item)
-        insert_snapshot(db, payload.run_uuid, payload.page_type, item)
+        upsert_product(db, item, current_user.id)
+        insert_snapshot(db, payload.run_uuid, payload.page_type, item, current_user.id)
         upserted_products += 1
         inserted_snapshots += 1
 
     for edge in payload.edges:
-        db.add(build_edge(payload.run_uuid, edge))
+        db.add(build_edge(payload.run_uuid, edge, current_user.id))
         inserted_edges += 1
 
     db.commit()
@@ -35,8 +36,9 @@ def ingest_batch(db: Session, payload: UploadBatchRequest) -> dict[str, int | st
     }
 
 
-def upsert_product(db: Session, item: UploadItem) -> None:
+def upsert_product(db: Session, item: UploadItem, user_id: int) -> None:
     stmt = insert(Product).values(
+        user_id=user_id,
         goods_id=item.goods_id,
         current_title=item.name,
         current_full_title=item.full_title,
@@ -53,7 +55,7 @@ def upsert_product(db: Session, item: UploadItem) -> None:
         last_seen_at=item.scraped_at or datetime.now(timezone.utc),
     )
     stmt = stmt.on_conflict_do_update(
-        index_elements=[Product.goods_id],
+        index_elements=[Product.user_id, Product.goods_id],
         set_={
             "current_title": stmt.excluded.current_title,
             "current_full_title": stmt.excluded.current_full_title,
@@ -82,8 +84,9 @@ def upsert_product(db: Session, item: UploadItem) -> None:
     db.execute(stmt)
 
 
-def insert_snapshot(db: Session, run_uuid: str | None, page_type: str | None, item: UploadItem) -> None:
+def insert_snapshot(db: Session, run_uuid: str | None, page_type: str | None, item: UploadItem, user_id: int) -> None:
     snapshot = ProductSnapshot(
+        user_id=user_id,
         goods_id=item.goods_id,
         run_uuid=run_uuid,
         page_type=page_type,
@@ -105,8 +108,9 @@ def insert_snapshot(db: Session, run_uuid: str | None, page_type: str | None, it
     db.add(snapshot)
 
 
-def build_edge(run_uuid: str | None, edge: UploadEdge) -> CrawlEdge:
+def build_edge(run_uuid: str | None, edge: UploadEdge, user_id: int) -> CrawlEdge:
     return CrawlEdge(
+        user_id=user_id,
         run_uuid=run_uuid,
         from_goods_id=edge.from_goods_id,
         to_goods_id=edge.to_goods_id,

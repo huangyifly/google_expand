@@ -26,6 +26,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 const popupPorts = new Set();
 const BACKEND_BASE_URL = 'http://47.107.78.215:8000';
+const AUTH_TOKEN_KEY = 'temu_auth_token';
+const AUTH_USER_KEY = 'temu_auth_user';
 const TEMU_TAB_QUERY = { url: '*://*.temu.com/*' };
 const LISTING_WORKFLOW_GOODS_ID_KEY = 'temu_listing_workflow_goods_id';
 const TEMU_BROWSING_DATA_ORIGINS = [
@@ -67,6 +69,32 @@ chrome.runtime.onConnect.addListener(port => {
   }
 });
 
+async function getToken() {
+  const result = await chrome.storage.local.get([AUTH_TOKEN_KEY]);
+  return result[AUTH_TOKEN_KEY] || null;
+}
+
+async function setAuth(token, user) {
+  await chrome.storage.local.set({
+    [AUTH_TOKEN_KEY]: token,
+    [AUTH_USER_KEY]: user || null,
+  });
+}
+
+async function clearAuth() {
+  await chrome.storage.local.remove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
+}
+
+async function getAuthUser() {
+  const result = await chrome.storage.local.get([AUTH_USER_KEY]);
+  return result[AUTH_USER_KEY] || null;
+}
+
+async function authHeaders() {
+  const token = await getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 /**
  * 全局消息路由。背景页同时承担 3 类消息的中转：
  *   1. progressActions：content.js 的进度推送 → 广播给所有已连接的 popup port；
@@ -100,7 +128,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
-  const backendActions = ['backendStartRun', 'backendUploadBatch', 'backendFinishRun'];
+  const backendActions = ['backendStartRun', 'backendUploadBatch', 'backendFinishRun', 'fetchExclusionKeywords'];
 
   if (backendActions.includes(msg.action)) {
     handleBackendAction(msg)
@@ -137,6 +165,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'login') {
+    postJson('/api/auth/login', {
+      email: String(msg.email || '').trim(),
+      password: String(msg.password || ''),
+    }).then(async (response) => {
+      if (response?.ok && response.access_token) {
+        await setAuth(response.access_token, {
+          email: response.email || String(msg.email || '').trim(),
+          role: response.role || 'user',
+        });
+      }
+      sendResponse(response);
+    }).catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (msg.action === 'logout') {
+    clearAuth()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (msg.action === 'getAuthUser') {
+    Promise.all([getToken(), getAuthUser()])
+      .then(([token, user]) => sendResponse({ ok: Boolean(token), user }))
+      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
   // popup 发来的控制指令 → 转发给当前 Temu 标签页
   const controlActions = [
     'start',
@@ -144,6 +202,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     'getState',
     'clearAll',
     'setConfig',
+    'setLogVisible',
     'triggerLoadMoreNow',
     'applyLocalWarehouseFilter',
     'setWorkflowState',
@@ -624,12 +683,10 @@ async function fetchListingConfig(goodsId) {
     return { ok: false, error: '缺少 goods_id，无法读取后台上架参数。' };
   }
 
-  const response = await fetch(`${BACKEND_BASE_URL}/api/dashboard/products/${encodeURIComponent(goodsId)}/listing-config`);
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data?.ok) {
+  const data = await getJson(`/api/dashboard/products/${encodeURIComponent(goodsId)}/listing-config`);
+  if (!data?.ok) {
     return {
-      ok: false,
-      error: data.detail || data.error || `读取后台上架参数失败：${response.status}`,
+      ok: false, error: data?.detail || data?.error || '读取后台上架参数失败',
     };
   }
 
@@ -1840,11 +1897,13 @@ async function handleBackendAction(msg) {
  * @returns {Promise<{ok: boolean, status?: number, error?: string, data?: unknown, [k: string]: unknown}>}
  */
 async function postJson(path, payload) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(await authHeaders()),
+  };
   const response = await fetch(`${BACKEND_BASE_URL}${path}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(payload || {}),
   });
 
@@ -1857,6 +1916,9 @@ async function postJson(path, payload) {
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      await clearAuth();
+    }
     return {
       ok: false,
       status: response.status,
@@ -1877,7 +1939,11 @@ async function postJson(path, payload) {
  * @returns {Promise<{ok: boolean, status?: number, error?: string, [k: string]: unknown}>}
  */
 async function getJson(path) {
-  const response = await fetch(`${BACKEND_BASE_URL}${path}`);
+  const response = await fetch(`${BACKEND_BASE_URL}${path}`, {
+    headers: {
+      ...(await authHeaders()),
+    },
+  });
   const text = await response.text();
   let data = {};
   try {
@@ -1887,6 +1953,9 @@ async function getJson(path) {
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      await clearAuth();
+    }
     return {
       ok: false,
       status: response.status,

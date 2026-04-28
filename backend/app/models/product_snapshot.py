@@ -16,6 +16,7 @@ class ProductSnapshot(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     goods_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     run_uuid: Mapped[str | None] = mapped_column(ForeignKey("crawl_runs.run_uuid"), nullable=True)
     page_type: Mapped[str | None] = mapped_column(String(32))
     source: Mapped[str | None] = mapped_column(String(32))

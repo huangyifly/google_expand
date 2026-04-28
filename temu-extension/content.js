@@ -177,7 +177,6 @@ const EXCLUDED_TITLE_KEYWORDS_FALLBACK = [
     '冰格', '制冰盒', '烘焙模具', '蛋糕模', '烘焙纸', '锡纸',
 
 
-
     // ── 服装（上衣）────────────────────────────────────────
     'T恤', '衬衫', '衬衣', '卫衣', '毛衣', '针织衫', '毛衫',
     '吊带衫', '吊带背心', '背心', '马甲',
@@ -937,11 +936,20 @@ async function main() {
             logAction('warn', `非 Temu 页面`);
             return;
         }
-
-        // 1) 新 URL 登陆 → 重置本页 batch 计数。每次 URL 变化（listing → detail、
-        //    detail → detail2、甚至 listing 内部翻页）都会进到这里。
-        //    重置放在 scrapeAndUpsertCurrentProduct 之前，让主商品也计入本页 batch 的第一条。
-        if (location.href !== state.batchAnchorUrl) {
+        // 1) 新 URL 登陆 → 重置本页 batch 计数。只比对 origin + pathname，
+        //    忽略 query string 和 hash，避免 Temu 在「查看更多」后悄悄修改
+        //    query 参数（如 refer_page_name、_x_sessn_id）导致误判为新页面、
+        //    batchStartCount 反复归零、batchLoaded 永远不达标的死循环。
+        const currentPageKey = location.origin + location.pathname;
+        const anchorPageKey = (() => {
+            try {
+                const u = new URL(state.batchAnchorUrl || '');
+                return u.origin + u.pathname;
+            } catch (_) {
+                return '';
+            }
+        })();
+        if (currentPageKey !== anchorPageKey) {
             logAction('info', `新页面进入，重置 batch 计数（原累计=${getTotalCollected(state)}，其中 collected=${state.collected.length} + 历史=${state.totalCollected || 0}）`, {
                 newUrl: location.href,
                 batchStartCount: getTotalCollected(state),
@@ -971,7 +979,7 @@ async function main() {
         const batchLoaded = getTotalCollected(refreshed) - refreshed.batchStartCount;
         const batchFull = batchLoaded >= refreshed.config.batchSize
             || getTotalCollected(refreshed) >= refreshed.config.totalLimit;
-
+        debugger
         if (!batchFull) {
             logAction('info', `本批未满（${batchLoaded}/${refreshed.config.batchSize}），进入商品流扫描`, {
                 batchLoaded,
