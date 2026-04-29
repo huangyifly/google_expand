@@ -4940,7 +4940,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         clearPendingAutoClick();
         (async () => {
             await uploadPendingBatch(true);
-            await finishBackendRun('stopped', (await getState()).collected.length);
+            const latest = await getState();
+            await finishBackendRun('stopped', getTotalCollected(latest));
             await patchState({running: false, phase: 'idle'});
             notifyState(await getState());
             sendResponse({ok: true});

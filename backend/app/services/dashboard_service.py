@@ -64,16 +64,33 @@ def get_dashboard_overview(db: Session, current_user: User) -> dict:
 
 def get_dashboard_runs(db: Session, current_user: User, limit: int = 20) -> list[dict]:
     query = db.query(CrawlRun)
+    snapshot_count_query = db.query(
+        ProductSnapshot.run_uuid,
+        func.count(distinct(ProductSnapshot.goods_id)).label("collected_count"),
+    )
     if not is_admin(current_user):
         query = query.filter(CrawlRun.user_id == current_user.id)
+        snapshot_count_query = snapshot_count_query.filter(ProductSnapshot.user_id == current_user.id)
     runs = query.order_by(desc(CrawlRun.started_at)).limit(limit).all()
+    run_uuids = [item.run_uuid for item in runs]
+    snapshot_counts = {}
+    if run_uuids:
+        snapshot_counts = {
+            run_uuid: count
+            for run_uuid, count in (
+                snapshot_count_query
+                .filter(ProductSnapshot.run_uuid.in_(run_uuids))
+                .group_by(ProductSnapshot.run_uuid)
+                .all()
+            )
+        }
     return [
         {
             "run_uuid": item.run_uuid,
             "status": item.status,
             "started_at": item.started_at.isoformat() if item.started_at else None,
             "ended_at": item.ended_at.isoformat() if item.ended_at else None,
-            "total_collected": item.total_collected,
+            "total_collected": snapshot_counts.get(item.run_uuid, item.total_collected),
             "notes": item.notes or "",
         }
         for item in runs
