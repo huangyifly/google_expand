@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -19,3 +19,4 @@ class CrawlRun(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     total_collected: Mapped[int] = mapped_column(default=0, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")

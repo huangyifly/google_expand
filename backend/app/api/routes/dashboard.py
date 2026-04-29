@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.models import Product
+from app.models import CrawlEdge, CrawlRun, Product, ProductSnapshot
 from app.models.user import User
 from app.services.dashboard_service import (
     export_products_excel,
@@ -82,8 +82,13 @@ def dashboard_products(
     q: str = Query(default="", max_length=100),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=30, ge=1, le=200),
+    limit: int | None = Query(default=None, ge=1, le=200),
     sort_by: str = Query(default="last_seen_at"),
     sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    user_id: int | None = Query(default=None),
+    run_uuid: str | None = Query(default=None, max_length=36),
+    created_after: datetime | None = Query(default=None),
+    created_before: datetime | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -92,9 +97,13 @@ def dashboard_products(
         current_user=current_user,
         keyword=q,
         page=page,
-        page_size=page_size,
+        page_size=limit or page_size,
         sort_by=sort_by,
         sort_order=sort_order,
+        user_id=user_id,
+        run_uuid=run_uuid,
+        created_after=created_after,
+        created_before=created_before,
     )
 
 
@@ -103,11 +112,25 @@ def export_products(
     q: str = Query(default=""),
     sort_by: str = Query(default="last_seen_at"),
     sort_order: str = Query(default="desc"),
+    user_id: int | None = Query(default=None),
+    run_uuid: str | None = Query(default=None, max_length=36),
+    created_after: datetime | None = Query(default=None),
+    created_before: datetime | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Response:
     """导出当前筛选条件下的全量商品数据为 Excel 文件。"""
-    xlsx_bytes = export_products_excel(db, current_user=current_user, keyword=q, sort_by=sort_by, sort_order=sort_order)
+    xlsx_bytes = export_products_excel(
+        db,
+        current_user=current_user,
+        keyword=q,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        user_id=user_id,
+        run_uuid=run_uuid,
+        created_after=created_after,
+        created_before=created_before,
+    )
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"temu_products_{timestamp}.xlsx"
     return Response(
@@ -117,6 +140,100 @@ def export_products(
     )
 
 
+@router.delete("/runs/{run_uuid}")
+def delete_crawl_run(
+    run_uuid: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    run_query = db.query(CrawlRun).filter(
+        CrawlRun.run_uuid == run_uuid,
+        CrawlRun.is_deleted.is_(False),
+    )
+    if current_user.role != "admin":
+        run_query = run_query.filter(CrawlRun.user_id == current_user.id)
+
+    crawl_run = run_query.first()
+    if not crawl_run:
+        raise HTTPException(status_code=404, detail="采集任务不存在")
+
+    artifact_filters = [ProductSnapshot.run_uuid == run_uuid]
+    edge_filters = [CrawlEdge.run_uuid == run_uuid]
+    product_filters = [Product.run_uuid == run_uuid]
+    if current_user.role != "admin":
+        artifact_filters.append(ProductSnapshot.user_id == current_user.id)
+        edge_filters.append(CrawlEdge.user_id == current_user.id)
+        product_filters.append(Product.user_id == current_user.id)
+
+    snapshot_count = (
+        db.query(ProductSnapshot)
+        .filter(ProductSnapshot.is_deleted.is_(False), *artifact_filters)
+        .update({ProductSnapshot.is_deleted: True}, synchronize_session=False)
+    )
+    edge_count = (
+        db.query(CrawlEdge)
+        .filter(CrawlEdge.is_deleted.is_(False), *edge_filters)
+        .update({CrawlEdge.is_deleted: True}, synchronize_session=False)
+    )
+    product_count = (
+        db.query(Product)
+        .filter(Product.is_deleted.is_(False), *product_filters)
+        .update({Product.is_deleted: True}, synchronize_session=False)
+    )
+    crawl_run.is_deleted = True
+    db.add(crawl_run)
+    db.commit()
+    return {
+        "ok": True,
+        "run_uuid": run_uuid,
+        "deleted_runs": 1,
+        "deleted_snapshots": snapshot_count,
+        "deleted_edges": edge_count,
+        "deleted_products": product_count,
+    }
+
+
+@router.delete("/products/before-today")
+def delete_products_before_today(
+    user_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    today_start = datetime.combine(datetime.now().date(), time.min)
+    query = db.query(Product).filter(
+        Product.is_deleted.is_(False),
+        Product.created_at < today_start,
+    )
+    if current_user.role == "admin":
+        if user_id is not None:
+            query = query.filter(Product.user_id == user_id)
+    else:
+        query = query.filter(Product.user_id == current_user.id)
+
+    deleted_count = query.update({Product.is_deleted: True}, synchronize_session=False)
+    db.commit()
+    return {"ok": True, "deleted_count": deleted_count, "before": today_start.isoformat()}
+
+
+@router.delete("/products/{product_id}")
+def delete_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    query = db.query(Product).filter(Product.id == product_id, Product.is_deleted.is_(False))
+    if current_user.role != "admin":
+        query = query.filter(Product.user_id == current_user.id)
+    product = query.first()
+    if not product:
+        raise HTTPException(status_code=404, detail="商品不存在")
+
+    product.is_deleted = True
+    db.add(product)
+    db.commit()
+    return {"ok": True, "id": product.id}
+
+
 @router.patch("/products/{goods_id}/listing-config")
 def update_product_listing_config(
     goods_id: str,
@@ -124,7 +241,7 @@ def update_product_listing_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    query = db.query(Product).filter(Product.goods_id == goods_id)
+    query = db.query(Product).filter(Product.goods_id == goods_id, Product.is_deleted.is_(False))
     if current_user.role != "admin":
         query = query.filter(Product.user_id == current_user.id)
     product = query.first()
@@ -146,7 +263,7 @@ def get_product_listing_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    query = db.query(Product).filter(Product.goods_id == goods_id)
+    query = db.query(Product).filter(Product.goods_id == goods_id, Product.is_deleted.is_(False))
     if current_user.role != "admin":
         query = query.filter(Product.user_id == current_user.id)
     product = query.first()

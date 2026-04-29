@@ -199,6 +199,23 @@
 
     tbody tr:hover { background: #f9fbff; }
 
+    button.danger {
+      min-height: 30px;
+      padding: 5px 9px;
+      border: 1px solid #fecdd3;
+      border-radius: 8px;
+      background: #fff1f2;
+      color: var(--err);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.danger:hover {
+      background: #ffe4e8;
+    }
+
     .mono {
       font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
       word-break: break-all;
@@ -352,6 +369,7 @@
                 <th>开始时间</th>
                 <th>结束时间</th>
                 <th>采集量</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody id="runsBody"></tbody>
@@ -489,16 +507,32 @@
       const body = document.getElementById("runsBody");
       body.innerHTML = items.map(item => {
         const status = safe(item.status);
+        const runUuid = safe(item.run_uuid);
+        const productUrl = `/admin/products?run_uuid=${encodeURIComponent(item.run_uuid || "")}`;
         return `
           <tr>
-            <td class="mono">${safe(item.run_uuid)}</td>
+            <td class="mono"><a href="${productUrl}">${runUuid}</a></td>
             <td><span class="status-pill ${statusClass(status)}">${status}</span></td>
             <td>${formatDateTime(item.started_at)}</td>
             <td>${formatDateTime(item.ended_at)}</td>
             <td>${fmt.format(item.total_collected || 0)}</td>
+            <td><button class="danger" type="button" data-delete-run="${runUuid}">删除</button></td>
           </tr>
         `;
       }).join("");
+    }
+
+    async function deleteRun(runUuid) {
+      if (!runUuid || runUuid === "-") return;
+      if (!confirm(`删除采集任务 ${runUuid}？`)) return;
+      const response = await authFetch(`/api/dashboard/runs/${encodeURIComponent(runUuid)}`, {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || `删除失败：${response.status}`);
+      }
+      await boot();
     }
 
     function renderSources(items) {
@@ -547,6 +581,14 @@
       renderSources(sources.items || []);
       renderEdges(edges.items || []);
     }
+
+    document.getElementById("runsBody").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-delete-run]");
+      if (!button) return;
+      deleteRun(button.dataset.deleteRun).catch((error) => {
+        alert(error.message);
+      });
+    });
 
     boot().catch((error) => {
       document.body.innerHTML = `<pre class="error-view">后台页面加载失败\n${error.message}</pre>`;

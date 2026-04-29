@@ -30,6 +30,7 @@ def init_db() -> None:
     ensure_products_schema()
     ensure_product_snapshots_schema()
     backfill_product_raw_fields()
+    backfill_product_run_uuid()
     seed_exclusion_keywords()
     backfill_product_sales_values()
     seed_admin()
@@ -52,19 +53,28 @@ def ensure_user_isolation_schema() -> None:
             run_columns = {column["name"] for column in inspector.get_columns("crawl_runs")}
             if "user_id" not in run_columns:
                 connection.execute(text("ALTER TABLE crawl_runs ADD COLUMN user_id INTEGER"))
+            if "is_deleted" not in run_columns:
+                connection.execute(text("ALTER TABLE crawl_runs ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_crawl_runs_user_id ON crawl_runs (user_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_crawl_runs_is_deleted ON crawl_runs (is_deleted)"))
 
         if "crawl_edges" in table_names:
             edge_columns = {column["name"] for column in inspector.get_columns("crawl_edges")}
             if "user_id" not in edge_columns:
                 connection.execute(text("ALTER TABLE crawl_edges ADD COLUMN user_id INTEGER"))
+            if "is_deleted" not in edge_columns:
+                connection.execute(text("ALTER TABLE crawl_edges ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_crawl_edges_user_id ON crawl_edges (user_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_crawl_edges_is_deleted ON crawl_edges (is_deleted)"))
 
         if "product_snapshots" in table_names:
             snapshot_columns = {column["name"] for column in inspector.get_columns("product_snapshots")}
             if "user_id" not in snapshot_columns:
                 connection.execute(text("ALTER TABLE product_snapshots ADD COLUMN user_id INTEGER"))
+            if "is_deleted" not in snapshot_columns:
+                connection.execute(text("ALTER TABLE product_snapshots ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_product_snapshots_user_id ON product_snapshots (user_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_product_snapshots_is_deleted ON product_snapshots (is_deleted)"))
 
 
 def ensure_products_schema() -> None:
@@ -82,6 +92,14 @@ def ensure_products_schema() -> None:
             connection.execute(text("ALTER TABLE products ADD COLUMN current_raw_html TEXT"))
         if "current_sales_value" not in existing_columns:
             connection.execute(text("ALTER TABLE products ADD COLUMN current_sales_value INTEGER"))
+        if "run_uuid" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN run_uuid VARCHAR(36)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_products_run_uuid ON products (run_uuid)"))
+        else:
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_products_run_uuid ON products (run_uuid)"))
+        if "is_deleted" not in existing_columns:
+            connection.execute(text("ALTER TABLE products ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_products_is_deleted ON products (is_deleted)"))
         if "listing_length_cm" not in existing_columns:
             connection.execute(text("ALTER TABLE products ADD COLUMN listing_length_cm NUMERIC(10, 2)"))
         if "listing_width_cm" not in existing_columns:
@@ -148,6 +166,41 @@ def backfill_product_raw_fields() -> None:
                     p.current_raw_text IS NULL OR p.current_raw_text = ''
                     OR p.current_raw_html IS NULL OR p.current_raw_html = ''
                   )
+                """
+            )
+        )
+
+
+def backfill_product_run_uuid() -> None:
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "products" not in table_names or "product_snapshots" not in table_names:
+        return
+
+    product_columns = {column["name"] for column in inspector.get_columns("products")}
+    snapshot_columns = {column["name"] for column in inspector.get_columns("product_snapshots")}
+    if "run_uuid" not in product_columns or "run_uuid" not in snapshot_columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                WITH latest_snapshot AS (
+                    SELECT DISTINCT ON (user_id, goods_id)
+                        user_id,
+                        goods_id,
+                        run_uuid
+                    FROM product_snapshots
+                    WHERE run_uuid IS NOT NULL AND run_uuid <> ''
+                    ORDER BY user_id, goods_id, scraped_at DESC NULLS LAST, id DESC
+                )
+                UPDATE products AS p
+                SET run_uuid = latest_snapshot.run_uuid
+                FROM latest_snapshot
+                WHERE p.goods_id = latest_snapshot.goods_id
+                  AND p.user_id IS NOT DISTINCT FROM latest_snapshot.user_id
+                  AND p.run_uuid IS NULL
                 """
             )
         )

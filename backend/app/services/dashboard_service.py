@@ -20,11 +20,47 @@ def decimal_to_text(value) -> str:
     return format(value, "f").rstrip("0").rstrip(".")
 
 
+def apply_product_filters(
+    query,
+    current_user: User,
+    keyword: str = "",
+    user_id: int | None = None,
+    run_uuid: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+):
+    query = query.filter(Product.is_deleted.is_(False))
+    if is_admin(current_user):
+        if user_id is not None:
+            query = query.filter(Product.user_id == user_id)
+    else:
+        query = query.filter(Product.user_id == current_user.id)
+
+    if run_uuid:
+        query = query.filter(Product.run_uuid == run_uuid)
+
+    if created_after is not None:
+        query = query.filter(Product.created_at >= created_after)
+    if created_before is not None:
+        query = query.filter(Product.created_at <= created_before)
+
+    if keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(
+            or_(
+                Product.goods_id.ilike(pattern),
+                Product.current_title.ilike(pattern),
+                Product.current_full_title.ilike(pattern),
+            )
+        )
+    return query
+
+
 def get_dashboard_overview(db: Session, current_user: User) -> dict:
-    product_q = db.query(Product)
-    snapshot_q = db.query(ProductSnapshot)
-    run_q = db.query(CrawlRun)
-    edge_q = db.query(CrawlEdge)
+    product_q = db.query(Product).filter(Product.is_deleted.is_(False))
+    snapshot_q = db.query(ProductSnapshot).filter(ProductSnapshot.is_deleted.is_(False))
+    run_q = db.query(CrawlRun).filter(CrawlRun.is_deleted.is_(False))
+    edge_q = db.query(CrawlEdge).filter(CrawlEdge.is_deleted.is_(False))
     if not is_admin(current_user):
         product_q = product_q.filter(Product.user_id == current_user.id)
         snapshot_q = snapshot_q.filter(ProductSnapshot.user_id == current_user.id)
@@ -63,10 +99,19 @@ def get_dashboard_overview(db: Session, current_user: User) -> dict:
 
 
 def get_dashboard_runs(db: Session, current_user: User, limit: int = 20) -> list[dict]:
-    query = db.query(CrawlRun)
-    snapshot_count_query = db.query(
-        ProductSnapshot.run_uuid,
-        func.count(distinct(ProductSnapshot.goods_id)).label("collected_count"),
+    query = db.query(CrawlRun).filter(CrawlRun.is_deleted.is_(False))
+    snapshot_count_query = (
+        db.query(
+            ProductSnapshot.run_uuid,
+            func.count(distinct(ProductSnapshot.goods_id)).label("collected_count"),
+        )
+        .filter(ProductSnapshot.is_deleted.is_(False))
+        .join(
+            Product,
+            (Product.user_id.is_not_distinct_from(ProductSnapshot.user_id))
+            & (Product.goods_id == ProductSnapshot.goods_id)
+            & (Product.is_deleted.is_(False)),
+        )
     )
     if not is_admin(current_user):
         query = query.filter(CrawlRun.user_id == current_user.id)
@@ -90,7 +135,7 @@ def get_dashboard_runs(db: Session, current_user: User, limit: int = 20) -> list
             "status": item.status,
             "started_at": item.started_at.isoformat() if item.started_at else None,
             "ended_at": item.ended_at.isoformat() if item.ended_at else None,
-            "total_collected": snapshot_counts.get(item.run_uuid, item.total_collected),
+            "total_collected": snapshot_counts.get(item.run_uuid, 0),
             "notes": item.notes or "",
         }
         for item in runs
@@ -98,7 +143,9 @@ def get_dashboard_runs(db: Session, current_user: User, limit: int = 20) -> list
 
 
 def get_dashboard_sources(db: Session, current_user: User) -> list[dict]:
-    query = db.query(ProductSnapshot.source, func.count(ProductSnapshot.id))
+    query = db.query(ProductSnapshot.source, func.count(ProductSnapshot.id)).filter(
+        ProductSnapshot.is_deleted.is_(False)
+    )
     if not is_admin(current_user):
         query = query.filter(ProductSnapshot.user_id == current_user.id)
     rows = (
@@ -122,7 +169,7 @@ def get_dashboard_edges(db: Session, current_user: User, limit: int = 20) -> lis
             CrawlEdge.to_goods_id,
             CrawlEdge.relation_type,
             func.count(CrawlEdge.id).label("count"),
-        )
+        ).filter(CrawlEdge.is_deleted.is_(False))
     if not is_admin(current_user):
         query = query.filter(CrawlEdge.user_id == current_user.id)
     rows = (
@@ -151,24 +198,27 @@ def get_dashboard_products(
     page_size: int = 30,
     sort_by: str = "last_seen_at",
     sort_order: str = "desc",
+    user_id: int | None = None,
+    run_uuid: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
 ) -> dict:
-    query = db.query(Product)
-    if not is_admin(current_user):
-        query = query.filter(Product.user_id == current_user.id)
-    if keyword.strip():
-        pattern = f"%{keyword.strip()}%"
-        query = query.filter(
-            or_(
-                Product.goods_id.ilike(pattern),
-                Product.current_title.ilike(pattern),
-                Product.current_full_title.ilike(pattern),
-            )
-        )
+    query = db.query(Product, User.email.label("user_email")).outerjoin(User, Product.user_id == User.id)
+    query = apply_product_filters(
+        query,
+        current_user=current_user,
+        keyword=keyword,
+        user_id=user_id,
+        run_uuid=run_uuid,
+        created_after=created_after,
+        created_before=created_before,
+    )
 
     total = query.count()
 
     sort_mapping = {
         "goods_id": Product.goods_id,
+        "run_uuid": Product.run_uuid,
         "title": Product.current_title,
         "price_text": Product.current_price_text,
         "sales_text": Product.current_sales_text,
@@ -194,31 +244,36 @@ def get_dashboard_products(
         .all()
     )
 
-    items = [
-        {
-            "goods_id": item.goods_id,
-            "title": item.current_title or "",
-            "full_title": item.current_full_title or "",
-            "price_text": item.current_price_text or "",
-            "sales_text": item.current_sales_text or "",
-            "sales_value": item.current_sales_value,
-            "star_rating": item.current_star_rating or "",
-            "review_count": item.current_review_count,
-            "listing_time": item.current_listing_time or "",
-            "raw_text": item.current_raw_text or "",
-            "raw_html": item.current_raw_html or "",
-            "listing_length_cm": decimal_to_text(item.listing_length_cm),
-            "listing_width_cm": decimal_to_text(item.listing_width_cm),
-            "listing_height_cm": decimal_to_text(item.listing_height_cm),
-            "listing_weight_g": decimal_to_text(item.listing_weight_g),
-            "listing_declared_price": decimal_to_text(item.listing_declared_price),
-            "listing_suggested_price": decimal_to_text(item.listing_suggested_price),
-            "last_source": item.last_source or "",
-            "last_seen_at": item.last_seen_at.isoformat() if item.last_seen_at else None,
-            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-        }
-        for item in rows
-    ]
+    items = []
+    for item, user_email in rows:
+        items.append(
+            {
+                "id": item.id,
+                "user_id": item.user_id,
+                "user_email": user_email or "",
+                "run_uuid": item.run_uuid or "",
+                "goods_id": item.goods_id,
+                "title": item.current_title or "",
+                "full_title": item.current_full_title or "",
+                "price_text": item.current_price_text or "",
+                "sales_text": item.current_sales_text or "",
+                "sales_value": item.current_sales_value,
+                "star_rating": item.current_star_rating or "",
+                "review_count": item.current_review_count,
+                "listing_time": item.current_listing_time or "",
+                "raw_text": item.current_raw_text or "",
+                "raw_html": item.current_raw_html or "",
+                "listing_length_cm": decimal_to_text(item.listing_length_cm),
+                "listing_width_cm": decimal_to_text(item.listing_width_cm),
+                "listing_height_cm": decimal_to_text(item.listing_height_cm),
+                "listing_weight_g": decimal_to_text(item.listing_weight_g),
+                "listing_declared_price": decimal_to_text(item.listing_declared_price),
+                "listing_suggested_price": decimal_to_text(item.listing_suggested_price),
+                "last_source": item.last_source or "",
+                "last_seen_at": item.last_seen_at.isoformat() if item.last_seen_at else None,
+                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+            }
+        )
     return {
         "items": items,
         "page": page,
@@ -228,6 +283,10 @@ def get_dashboard_products(
         "sort_by": sort_by,
         "sort_order": sort_order,
         "keyword": keyword,
+        "user_id": user_id,
+        "run_uuid": run_uuid,
+        "created_after": created_after.isoformat() if created_after else None,
+        "created_before": created_before.isoformat() if created_before else None,
     }
 
 
@@ -237,23 +296,26 @@ def export_products_excel(
     keyword: str = "",
     sort_by: str = "last_seen_at",
     sort_order: str = "desc",
+    user_id: int | None = None,
+    run_uuid: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
 ) -> bytes:
     """查询全量（无分页）商品并生成 Excel 文件，返回二进制内容。"""
-    query = db.query(Product)
-    if not is_admin(current_user):
-        query = query.filter(Product.user_id == current_user.id)
-    if keyword.strip():
-        pattern = f"%{keyword.strip()}%"
-        query = query.filter(
-            or_(
-                Product.goods_id.ilike(pattern),
-                Product.current_title.ilike(pattern),
-                Product.current_full_title.ilike(pattern),
-            )
-        )
+    query = db.query(Product, User.email.label("user_email")).outerjoin(User, Product.user_id == User.id)
+    query = apply_product_filters(
+        query,
+        current_user=current_user,
+        keyword=keyword,
+        user_id=user_id,
+        run_uuid=run_uuid,
+        created_after=created_after,
+        created_before=created_before,
+    )
 
     sort_mapping = {
         "goods_id": Product.goods_id,
+        "run_uuid": Product.run_uuid,
         "title": Product.current_title,
         "price_text": Product.current_price_text,
         "sales_text": Product.current_sales_text,
@@ -279,7 +341,7 @@ def export_products_excel(
     ws.title = "商品数据"
 
     headers = [
-        "商品 ID", "标题", "完整标题", "价格", "销量文本", "销量值", "星级", "评价数",
+        "商品 ID", "归属账号", "Run UUID", "标题", "完整标题", "价格", "销量文本", "销量值", "星级", "评价数",
         "上架时间", "最长边(cm)", "次长边(cm)", "最短边(cm)", "重量(g)",
         "申报价", "建议零售价", "来源", "最后出现", "更新时间",
     ]
@@ -294,16 +356,18 @@ def export_products_excel(
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     # 列宽
-    col_widths = [20, 36, 50, 12, 14, 12, 10, 10, 20, 14, 14, 14, 12, 12, 14, 14, 20, 20]
+    col_widths = [20, 28, 38, 36, 50, 12, 14, 12, 10, 10, 20, 14, 14, 14, 12, 12, 14, 14, 20, 20]
     for col_idx, width in enumerate(col_widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
 
     ws.row_dimensions[1].height = 22
     ws.freeze_panes = "A2"
 
-    for row in rows:
+    for row, user_email in rows:
         ws.append([
             row.goods_id or "",
+            user_email or "",
+            row.run_uuid or "",
             row.current_title or "",
             row.current_full_title or "",
             row.current_price_text or "",
@@ -326,8 +390,8 @@ def export_products_excel(
     # 日期列格式
     date_fmt = "YYYY-MM-DD HH:MM:SS"
     for row_idx in range(2, len(rows) + 2):
-        ws.cell(row=row_idx, column=17).number_format = date_fmt
-        ws.cell(row=row_idx, column=18).number_format = date_fmt
+        ws.cell(row=row_idx, column=19).number_format = date_fmt
+        ws.cell(row=row_idx, column=20).number_format = date_fmt
 
     buf = io.BytesIO()
     wb.save(buf)

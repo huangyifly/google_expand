@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -16,6 +16,7 @@ class Product(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    run_uuid: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     goods_id: Mapped[str] = mapped_column(String(64), nullable=False)
     current_title: Mapped[str | None] = mapped_column(String(255))
     current_full_title: Mapped[str | None] = mapped_column(String(1024))
@@ -34,5 +35,6 @@ class Product(TimestampMixin, Base):
     listing_weight_g: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     listing_declared_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     listing_suggested_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
     last_source: Mapped[str | None] = mapped_column(String(32))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

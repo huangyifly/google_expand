@@ -17,7 +17,7 @@ def ingest_batch(db: Session, payload: UploadBatchRequest, current_user: User) -
     inserted_edges = 0
 
     for item in payload.items:
-        upsert_product(db, item, current_user.id)
+        upsert_product(db, item, current_user.id, payload.run_uuid)
         insert_snapshot(db, payload.run_uuid, payload.page_type, item, current_user.id)
         upserted_products += 1
         inserted_snapshots += 1
@@ -36,9 +36,10 @@ def ingest_batch(db: Session, payload: UploadBatchRequest, current_user: User) -
     }
 
 
-def upsert_product(db: Session, item: UploadItem, user_id: int) -> None:
+def upsert_product(db: Session, item: UploadItem, user_id: int, run_uuid: str | None) -> None:
     stmt = insert(Product).values(
         user_id=user_id,
+        run_uuid=run_uuid,
         goods_id=item.goods_id,
         current_title=item.name,
         current_full_title=item.full_title,
@@ -58,6 +59,7 @@ def upsert_product(db: Session, item: UploadItem, user_id: int) -> None:
         index_elements=[Product.user_id, Product.goods_id],
         set_={
             "current_title": stmt.excluded.current_title,
+            "run_uuid": stmt.excluded.run_uuid,
             "current_full_title": stmt.excluded.current_full_title,
             "current_price_text": stmt.excluded.current_price_text,
             "current_price_value": stmt.excluded.current_price_value,
