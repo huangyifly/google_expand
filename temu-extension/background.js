@@ -25,7 +25,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // content.js 调用 chrome.runtime.sendMessage → background 收到 → 转给所有 port
 
 const popupPorts = new Set();
-const BACKEND_BASE_URL = 'http://47.107.78.215:8000';
+const BACKEND_BASE_URL = 'http://127.0.0.1:8000';
 const AUTH_TOKEN_KEY = 'temu_auth_token';
 const AUTH_USER_KEY = 'temu_auth_user';
 const TEMU_TAB_QUERY = { url: '*://*.temu.com/*' };
@@ -128,12 +128,64 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
-  const backendActions = ['backendStartRun', 'backendUploadBatch', 'backendFinishRun', 'fetchExclusionKeywords'];
+  const backendActions = ['backendStartRun', 'backendUploadBatch', 'backendFinishRun', 'backendUploadTrace', 'fetchExclusionKeywords'];
 
   if (backendActions.includes(msg.action)) {
     handleBackendAction(msg)
       .then((response) => sendResponse(response))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (msg.action === 'readFiberData') {
+    (async () => {
+      try {
+        const tabId = sender?.tab?.id;
+        if (!tabId) return sendResponse({ ok: false, error: '无法获取 tabId' });
+
+        const results = await chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: () => {
+            const readFiber = (dom) => {
+              const key = Object.keys(dom).find(
+                k => k.startsWith('__reactFiber') || k.startsWith('__reactProps')
+              );
+              if (!key) return null;
+              let fiber = dom[key];
+              let depth = 20;
+              while (fiber && depth--) {
+                const o = fiber?.pendingProps?.goodsInfo ||
+                          fiber?.memoizedProps?.children?.props?.data?.data;
+                if (o?.goodsId) return o;
+                fiber = fiber.return;
+              }
+              return null;
+            };
+
+            const map = new Map();
+            document.querySelectorAll('[data-tooltip^="goodName-"]').forEach(node => {
+              let cur = node;
+              for (let i = 0; cur && i < 8; i++, cur = cur.parentElement) {
+                const o = readFiber(cur);
+                if (o?.goodsId) {
+                  const id = o.goodsId.toString();
+                  if (!map.has(id)) map.set(id, o);
+                  break;
+                }
+              }
+            });
+
+            return Array.from(map.values());
+          },
+        });
+
+        const items = results?.[0]?.result || [];
+        sendResponse({ ok: true, items });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || String(e), items: [] });
+      }
+    })();
     return true;
   }
 
@@ -1879,6 +1931,12 @@ async function handleBackendAction(msg) {
     return postJson(`/api/runs/${encodeURIComponent(runUuid)}/finish`, msg.payload || {});
   }
 
+  if (msg.action === 'backendUploadTrace') {
+    const runUuid = msg.runUuid;
+    if (!runUuid) return { ok: false, error: '缺少 runUuid' };
+    return postJson(`/api/runs/${encodeURIComponent(runUuid)}/trace`, { entries: msg.entries || [] });
+  }
+
   if (msg.action === 'fetchExclusionKeywords') {
     return getJson('/api/config/exclusion-keywords');
   }
@@ -1969,3 +2027,4 @@ async function getJson(path) {
     ...data,
   };
 }
+

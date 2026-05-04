@@ -31,12 +31,11 @@ const loginBtn = document.getElementById('loginBtn');
 const loginError = document.getElementById('loginError');
 const logoutBtn = document.getElementById('logoutBtn');
 const userInfo = document.getElementById('userInfo');
-
 const LOG_VISIBLE_KEY = 'temu_log_visible';
 
-// popup 打开时从 storage 读取日志面板偏好并同步 checkbox
+// popup 打开时从 storage 读取日志面板偏好
 chrome.storage.local.get([LOG_VISIBLE_KEY], (result) => {
-  const visible = result[LOG_VISIBLE_KEY] !== false; // 默认显示
+  const visible = result[LOG_VISIBLE_KEY] !== false;
   if (cfgLogVisible) cfgLogVisible.checked = visible;
 });
 
@@ -337,7 +336,7 @@ port.onMessage.addListener((message) => {
     setRunningUI(false);
     setPhase('done');
     updateStats(message);
-    setStatus(`采集结束，累计保存 ${message.total} 条数据。`, 'ok');
+    setStatus(`采集结束，累计保存 ${message.total} 条数据。追踪日志已上传后端。`, 'ok');
   }
 });
 

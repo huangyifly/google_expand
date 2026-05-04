@@ -5,6 +5,13 @@
 # =============================================================================
 set -euo pipefail
 
+# ── 环境参数 ───────────────────────────────────────────────────────────────────
+# 用法：
+#   bash deploy.sh             → 本地开发（加载 .env，APP_ENV=development）
+#   bash deploy.sh production  → 生产服务器（加载 .env.production，APP_ENV=production）
+#   bash deploy.sh stop        → 停止服务
+ENV="${1:-development}"
+
 # ── 路径配置 ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
@@ -53,10 +60,24 @@ stop_service() {
     fi
 }
 
-if [ "${1:-}" = "stop" ]; then
+if [ "$ENV" = "stop" ]; then
     stop_service
     info "服务已停止"
     exit 0
+fi
+
+# ── 根据环境选择 .env 文件 ────────────────────────────────────────────────────
+if [ "$ENV" = "production" ]; then
+    ENV_FILE="$SCRIPT_DIR/.env.production"
+    info "环境：production（加载 .env.production）"
+else
+    ENV_FILE="$SCRIPT_DIR/.env"
+    info "环境：development（加载 .env）"
+fi
+
+if [ ! -f "$ENV_FILE" ]; then
+    error "找不到配置文件：$ENV_FILE"
+    exit 1
 fi
 
 # =============================================================================
@@ -90,7 +111,7 @@ info "依赖安装完成"
 info "启动服务：${APP_MODULE} → ${HOST}:${PORT}"
 cd "$SCRIPT_DIR"
 
-nohup uvicorn "$APP_MODULE" \
+nohup env APP_ENV="$ENV" uvicorn "$APP_MODULE" \
     --host "$HOST" \
     --port "$PORT" \
     --workers 1 \

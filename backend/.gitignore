@@ -1,1 +1,14 @@
 venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 含真实密码的环境配置，不提交到 git
+# 用 .env.example 作为模板
+.env
+.env.production
+
+# 运行时文件
+uvicorn.pid
+uvicorn.log

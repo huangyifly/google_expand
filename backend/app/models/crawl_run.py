@@ -20,3 +20,4 @@ class CrawlRun(Base):
     total_collected: Mapped[int] = mapped_column(default=0, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+    trace_log: Mapped[str | None] = mapped_column(Text, nullable=True, comment="采集流程追踪日志，JSONL 格式")
