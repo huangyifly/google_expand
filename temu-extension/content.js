@@ -1833,9 +1833,9 @@ async function runInitialFilter(state) {
         phase: 'navigating',
         reason: 'initial-filter-hit',
     });
-    await highlightPendingItem(queue[0], '初筛命中，点击后进入下一商品');
-    // 通知 popup 候选数量，用于渲染翻页导航条
+    // 先通知 popup 候选数量（高亮前发出，避免 scrollToRenderedAnchor 阻塞导致按钮迟迟不可用）
     notify({action: 'candidatesReady', index: 0, total: queue.length, isConservative});
+    await highlightPendingItem(queue[0], '初筛命中，点击后进入下一商品');
 }
 
 /**
@@ -5489,9 +5489,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const newIndex = Math.max(0, Math.min(queue.length - 1, (state.targetQueueIndex || 0) + delta));
             await patchState({targetQueueIndex: newIndex});
             clearPendingAutoClick();
-            await highlightPendingItem(queue[newIndex], '初筛命中，点击后进入下一商品');
+            // 先更新 popup 导航条，再高亮（避免 scrollToRenderedAnchor 阻塞）
             notify({action: 'candidatesReady', index: newIndex, total: queue.length, isConservative: true});
             sendResponse({ok: true, index: newIndex, total: queue.length});
+            await highlightPendingItem(queue[newIndex], '初筛命中，点击后进入下一商品');
         })();
         return true;
     }
