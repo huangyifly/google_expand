@@ -224,6 +224,12 @@ function syncFromState() {
     if (!state.running && state.total > 0) {
       setStatus(`当前已采集 ${state.total} 条数据，可继续采集。`);
     }
+    // popup 打开时从 state 恢复候选导航条，防止 popup 关闭期间错过 candidatesReady 消息
+    const isConservative = state.config?.collectionMode === 'CONSERVATIVE';
+    const queueLen = state.targetQueue?.length || 0;
+    const queueIdx = state.targetQueueIndex || 0;
+    console.log('[popup] syncFromState 恢复导航条 isConservative=', isConservative, 'queueLen=', queueLen, 'queueIdx=', queueIdx);
+    updateCandidateNav(queueIdx, queueLen, isConservative);
   });
 }
 
