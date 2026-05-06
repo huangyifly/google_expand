@@ -25,7 +25,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // content.js 调用 chrome.runtime.sendMessage → background 收到 → 转给所有 port
 
 const popupPorts = new Set();
-const BACKEND_BASE_URL = 'http://127.0.0.1:8000';
+const BACKEND_BASE_URL = 'http://47.107.78.215:8000';
 const AUTH_TOKEN_KEY = 'temu_auth_token';
 const AUTH_USER_KEY = 'temu_auth_user';
 const TEMU_TAB_QUERY = { url: '*://*.temu.com/*' };
@@ -112,6 +112,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     'manualLoadMoreClicked',
     'autoLoadMoreClicked',
     'filtered',
+    'candidatesReady',
     'detailDone',
     'oneClickListingClicked',
     'relatedAutoScrolling',

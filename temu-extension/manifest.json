@@ -6,7 +6,7 @@
   "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "tabs", "alarms", "browsingData", "cookies", "debugger", "downloads"],
   "host_permissions": [
     "http://47.107.78.215:8000/*",
-    "http://127.0.0.1:8000/*",
+    "http://47.107.78.215:8000/*",
     "http://localhost:8000/*",
     "https://www.yunqishuju.com/*",
     "https://agentseller.temu.com/*",
@@ -33,7 +33,7 @@
     {
       "matches": [
         "http://47.107.78.215:8000/*",
-        "http://127.0.0.1:8000/*",
+        "http://47.107.78.215:8000/*",
         "http://localhost:8000/*"
       ],
       "js": ["site-data-bridge.js"],

@@ -392,6 +392,7 @@ function defaultState() {
         pendingUploadEdges: [],
         processedIds: [],
         targetQueue: [],
+        targetQueueIndex: 0,   // 辅助模式下当前高亮的是 targetQueue 第几条（0-based）
         lastSweptGoodsId: '',
         batchStartCount: 0,
         // 最近一次重置 batchStartCount 时所在的 URL。main() 在每次运行时比较
@@ -1122,6 +1123,7 @@ async function main() {
         const batchLoaded = getTotalCollected(refreshed) - refreshed.batchStartCount;
         const batchFull = batchLoaded >= refreshed.config.batchSize
             || getTotalCollected(refreshed) >= refreshed.config.totalLimit;
+        const isConservativeMode = refreshed.config?.collectionMode === COLLECTION_MODES.CONSERVATIVE;
 
         // ── [节点] main:batch_gate ─────────────────────────────────────
         // 判断：本页已采数量（batchLoaded）是否达到 batchSize（默认 100）
@@ -1150,7 +1152,8 @@ async function main() {
                 listingUrl: location.href,
                 lastDiscoveryUrl: location.href,
             });
-            await sleep(jitteredMs(1.5));
+            // 辅助模式用户在场，无需抖动延迟；激进模式加随机间隔降低特征
+            if (!isConservativeMode) await sleep(jitteredMs(1.5));
             await productStreamTick();
             return;
         }
@@ -1212,7 +1215,7 @@ async function main() {
             listingUrl: location.href,
             lastDiscoveryUrl: location.href,
         });
-        await sleep(1500);
+        if (!isConservativeMode) await sleep(jitteredMs(1.5));
         await productStreamTick();
     } finally {
         mainLock = false;
@@ -1717,19 +1720,23 @@ async function runInitialFilter(state) {
         poolSize: pool.length,
     }, pool.length > 0 ? `→ selectPriorityItems(pool=${pool.length})` : '→ 候选池为空，准备结束或扩池');
 
-    const queue = selectPriorityItems(pool, 1, state.recentProcessedNames || []);
+    // 辅助模式多取几条候选供用户翻页浏览；激进模式只需要 1 条直接跳转
+    const isConservative = state.config?.collectionMode === COLLECTION_MODES.CONSERVATIVE;
+    const candidateLimit = isConservative ? 10 : 1;
+    const queue = selectPriorityItems(pool, candidateLimit, state.recentProcessedNames || []);
 
     if (queue.length > 0) {
-        logAction('info', `初筛命中：goodsId=${queue[0].goodsId} 名称="${(queue[0].name || queue[0].fullTitle || '').slice(0, 20)}"`, {
+        logAction('info', `初筛命中：goodsId=${queue[0].goodsId} 名称="${(queue[0].name || queue[0].fullTitle || '').slice(0, 20)}"${isConservative ? `（共 ${queue.length} 条候选可翻页）` : ''}`, {
             goodsId: queue[0].goodsId,
             starRating: queue[0].starRating,
             sales: queue[0].sales,
+            candidateCount: queue.length,
         });
 
         // ── [节点] filter:selected ─────────────────────────────────────
-        // 判断：selectPriorityItems 从候选池中命中 1 个目标
+        // 判断：selectPriorityItems 从候选池中命中目标
         // 优先规则：① 无评分新品（销量降序）② 有评分商品（销量降序+评价升序）
-        // 决策：把目标放入 targetQueue，高亮等待跳转
+        // 决策：把目标放入 targetQueue，高亮等待跳转（辅助模式可翻页）
         traceNode('filter', 'selected', 'selectPriorityItems 命中目标，优先无评分高销量商品', {
             goodsId: queue[0].goodsId,
             name: (queue[0].name || queue[0].fullTitle || '').slice(0, 40),
@@ -1738,6 +1745,7 @@ async function runInitialFilter(state) {
             salesNum: queue[0].salesNum || 0,
             reviewCount: queue[0].reviewCount || '(无)',
             sourceRootId: queue[0].sourceRootId,
+            candidateCount: queue.length,
         }, `→ highlightPendingItem(goodsId=${queue[0].goodsId})`);
     } else {
         logAction('warn', '初筛无结果：候选池已全部处理或为空', {
@@ -1819,11 +1827,15 @@ async function runInitialFilter(state) {
         resetQueue: true,
         incrementCycles: true,
     });
+    // 辅助模式记录候选总数和当前索引，供 popup 上一个/下一个按钮使用
+    await patchState({targetQueueIndex: 0});
     await transitionTo(FSM_STATES.TARGET_SELECTED, {
         phase: 'navigating',
         reason: 'initial-filter-hit',
     });
     await highlightPendingItem(queue[0], '初筛命中，点击后进入下一商品');
+    // 通知 popup 候选数量，用于渲染翻页导航条
+    notify({action: 'candidatesReady', index: 0, total: queue.length, isConservative});
 }
 
 /**
@@ -2078,7 +2090,11 @@ async function ensureRelatedAreaReady(currentId) {
     notify({action: 'relatedAutoScrolling'});
     debugLog('related-area-start', {currentId});
 
-    await scrollToPageBottomForRelatedRender();
+    // 辅助模式：用户在场，跳过强制滚底（避免干扰用户视角）
+    const state = await getState();
+    if (state.config?.collectionMode !== COLLECTION_MODES.CONSERVATIVE) {
+        await scrollToPageBottomForRelatedRender();
+    }
 
     const relatedArea = await waitForRelatedArea();
     if (!relatedArea) {
@@ -3165,17 +3181,21 @@ function scheduleLoadMoreResume(waitSec) {
     }
 
     const actualMs = jitteredMs(waitSec);
-    logAction('info', `下次扫描将在 ${(actualMs / 1000).toFixed(1)}s 后恢复（基准 ${waitSec}s ±30%），期间模拟真人滚动`);
 
-    // 在等待窗口内随机上下滚动，模拟真人浏览行为，降低风控识别概率
-    const scrollInterval = simulateHumanScrollDuring(actualMs);
+    // 辅助模式：用户在场，无需模拟真人滚动；激进模式才启用反风控滚动
+    getState().then(state => {
+        const isAggressive = state.config?.collectionMode === COLLECTION_MODES.AGGRESSIVE;
+        logAction('info', `下次扫描将在 ${(actualMs / 1000).toFixed(1)}s 后恢复（基准 ${waitSec}s ±30%）${isAggressive ? '，期间模拟真人滚动' : ''}`);
 
-    pendingLoadMoreResumeTimer = setTimeout(() => {
-        clearInterval(scrollInterval);
-        pendingLoadMoreResumeTimer = null;
-        mainLock = false;
-        main();
-    }, actualMs);
+        const scrollInterval = isAggressive ? simulateHumanScrollDuring(actualMs) : null;
+
+        pendingLoadMoreResumeTimer = setTimeout(() => {
+            if (scrollInterval) clearInterval(scrollInterval);
+            pendingLoadMoreResumeTimer = null;
+            mainLock = false;
+            main();
+        }, actualMs);
+    });
 }
 
 /**
@@ -4672,46 +4692,46 @@ function selectPriorityItems(items, limit = 1, recentNames = []) {
         threshold: DIVERSITY_OVERLAP_THRESHOLD,
     });
 
-    // 在低重叠组里用原有优先级逻辑选取
-    const pickFrom = (pool) => {
+    // 排序函数：无评分优先（销量降序），其次全量（销量降序+评价升序）
+    const sortedPool = (pool) => {
         const poolItems = pool.map((e) => e.item);
-        const priorityOne = poolItems
-            .filter((item) => !normalizeStar(item.starRating))
-            .sort(compareBySalesDesc);
-        if (priorityOne.length > 0) return priorityOne.slice(0, limit);
-        return [...poolItems].sort(compareBySalesDescThenReviewsAsc).slice(0, limit);
+        const noStar = poolItems.filter((item) => !normalizeStar(item.starRating)).sort(compareBySalesDesc);
+        const hasStar = poolItems.filter((item) => normalizeStar(item.starRating)).sort(compareBySalesDescThenReviewsAsc);
+        return [...noStar, ...hasStar];
     };
 
-    if (diverse.length > 0) {
-        const result = pickFrom(diverse);
-        if (result.length > 0) {
-            const chosen = result[0];
-            const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
-            logAction('info', `[selectPriorityItems] 命中低重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {
-                goodsId: chosen.goodsId,
-                overlap,
-                group: 'diverse',
-            });
-            return result;
+    // limit=1（激进模式）：保持原逻辑，低重叠组优先，为空才降级
+    // limit>1（辅助模式）：低重叠排前，高重叠排后，合并返回 limit 条
+    if (limit === 1) {
+        if (diverse.length > 0) {
+            const result = sortedPool(diverse).slice(0, 1);
+            if (result.length > 0) {
+                const chosen = result[0];
+                const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
+                logAction('info', `[selectPriorityItems] 命中低重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {goodsId: chosen.goodsId, overlap, group: 'diverse'});
+                return result;
+            }
         }
+        if (penalized.length > 0) {
+            const result = sortedPool(penalized).slice(0, 1);
+            if (result.length > 0) {
+                const chosen = result[0];
+                const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
+                logAction('warn', `[selectPriorityItems] 低重叠组为空，降级使用高重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {goodsId: chosen.goodsId, overlap, group: 'penalized'});
+                return result;
+            }
+        }
+        return [];
     }
 
-    // 低重叠组为空，降级到高重叠组
-    if (penalized.length > 0) {
-        const result = pickFrom(penalized);
-        if (result.length > 0) {
-            const chosen = result[0];
-            const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
-            logAction('warn', `[selectPriorityItems] 低重叠组为空，降级使用高重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {
-                goodsId: chosen.goodsId,
-                overlap,
-                group: 'penalized',
-            });
-            return result;
-        }
+    // limit > 1：低重叠在前，高重叠在后，合并取 limit 条
+    const combined = [...sortedPool(diverse), ...sortedPool(penalized)].slice(0, limit);
+    if (combined.length > 0) {
+        logAction('info', `[selectPriorityItems] 多候选模式：低重叠 ${diverse.length} 条 + 高重叠 ${penalized.length} 条 → 返回 ${combined.length} 条`, {
+            total: combined.length, diverseCount: diverse.length, penalizedCount: penalized.length,
+        });
     }
-
-    return [];
+    return combined;
 }
 
 /**
@@ -5456,6 +5476,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const host = document.getElementById('temu-timeline-host');
         if (host) host.style.display = timelineVisible ? '' : 'none';
         sendResponse({ok: true});
+        return true;
+    }
+
+    // 辅助模式：上一个/下一个候选商品
+    if (message.action === 'prevTarget' || message.action === 'nextTarget') {
+        (async () => {
+            const state = await getState();
+            const queue = state.targetQueue || [];
+            if (queue.length === 0) { sendResponse({ok: false}); return; }
+            const delta = message.action === 'nextTarget' ? 1 : -1;
+            const newIndex = Math.max(0, Math.min(queue.length - 1, (state.targetQueueIndex || 0) + delta));
+            await patchState({targetQueueIndex: newIndex});
+            clearPendingAutoClick();
+            await highlightPendingItem(queue[newIndex], '初筛命中，点击后进入下一商品');
+            notify({action: 'candidatesReady', index: newIndex, total: queue.length, isConservative: true});
+            sendResponse({ok: true, index: newIndex, total: queue.length});
+        })();
         return true;
     }
 

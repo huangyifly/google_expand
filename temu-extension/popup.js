@@ -17,6 +17,13 @@ const btnClear = document.getElementById('btnClear');
 
 const sTotal = document.getElementById('sTotal');
 
+// 辅助模式候选翻页导航
+const candidateNav = document.getElementById('candidateNav');
+const btnPrevTarget = document.getElementById('btnPrevTarget');
+const btnNextTarget = document.getElementById('btnNextTarget');
+const navIndex = document.getElementById('navIndex');
+const navTotal = document.getElementById('navTotal');
+
 const cfgCollectionMode = document.getElementById('cfgCollectionMode');
 const cfgInterval = document.getElementById('cfgInterval');
 const cfgBatch = document.getElementById('cfgBatch');
@@ -278,13 +285,18 @@ port.onMessage.addListener((message) => {
   }
 
   if (message.action === 'filtered') {
-    setPhase('filtering', message.queued ? '初筛后已选中 1 条目标商品' : '当前批次没有命中目标商品');
+    setPhase('filtering', message.queued ? '初筛后已选中目标商品' : '当前批次没有命中目标商品');
     setStatus(
       message.queued
-        ? '商品优先级筛选完成，已选出 1 条目标商品。'
+        ? '商品优先级筛选完成，已选出目标商品。'
         : '商品优先级筛选完成，但当前批次没有符合条件的新商品。',
       message.queued ? 'ok' : ''
     );
+    return;
+  }
+
+  if (message.action === 'candidatesReady') {
+    updateCandidateNav(message.index, message.total, message.isConservative);
     return;
   }
 
@@ -491,6 +503,39 @@ loginBtn?.addEventListener('click', async () => {
 logoutBtn?.addEventListener('click', async () => {
   await callRuntime('logout');
   setAuthUI(false, null);
+});
+
+// ── 候选翻页导航 ──────────────────────────────────────────────────────────────
+
+/**
+ * 更新导航条显示（仅辅助模式且有多条候选时显示）。
+ * @param {number} index 当前索引（0-based）
+ * @param {number} total 候选总数
+ * @param {boolean} isConservative 是否辅助模式
+ */
+function updateCandidateNav(index, total, isConservative) {
+  if (!candidateNav) return;
+  if (!isConservative || total <= 1) {
+    candidateNav.classList.remove('visible');
+    return;
+  }
+  candidateNav.classList.add('visible');
+  navIndex.textContent = index + 1;
+  navTotal.textContent = total;
+  btnPrevTarget.disabled = index <= 0;
+  btnNextTarget.disabled = index >= total - 1;
+}
+
+btnPrevTarget?.addEventListener('click', () => {
+  sendToContent('prevTarget', {}, (resp) => {
+    if (resp?.ok) updateCandidateNav(resp.index, resp.total, true);
+  });
+});
+
+btnNextTarget?.addEventListener('click', () => {
+  sendToContent('nextTarget', {}, (resp) => {
+    if (resp?.ok) updateCandidateNav(resp.index, resp.total, true);
+  });
 });
 
 async function init() {
