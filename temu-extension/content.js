@@ -5501,6 +5501,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
+    if (message.action === 'refreshCandidates') {
+        (async () => {
+            logAction('info', '[refreshCandidates] 手动触发：重新扫描当前页 Fiber 数据并筛选候选');
+            const state = await getState();
+            const currentId = getGoodsIdFromUrl(location.href);
+            const shouldRemoveLocalWarehouse = Boolean(state.config?.removeLocalWarehouse);
+
+            // 重新读取当前页所有商品流 Fiber 数据，补充到 collected
+            const streams = enumerateProductStreams();
+            for (const stream of streams) {
+                const items = await readItemsFromReactFiber({
+                    streamId: stream.id,
+                    sourceTag: stream.sourceTag,
+                    currentId,
+                    shouldRemoveLocalWarehouse,
+                });
+                const removedCount = items._removedCount || 0;
+                delete items._removedCount;
+                const added = await upsertItems(items);
+                logAction('info', `[refreshCandidates] 流 [${stream.id}] 读取 ${items.length} 条，新增 ${added} 条，过滤本地仓 ${removedCount} 条`);
+            }
+
+            // 重置 processedIds 中属于当前队列的项，让这批候选可以被重新选中
+            // 注意：只清空 targetQueue，不动已完成的 processedIds，避免重复跳转已处理商品
+            await patchState({targetQueue: [], targetQueueIndex: 0});
+
+            // 重新运行初筛，重建候选队列
+            const refreshed = await getState();
+            await runInitialFilter(refreshed);
+            sendResponse({ok: true});
+        })();
+        return true;
+    }
+
     if (message.action === 'triggerLoadMoreNow') {
         (async () => {
             const ok = await triggerLoadMoreNow();

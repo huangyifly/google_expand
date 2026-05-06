@@ -261,6 +261,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     'setWorkflowState',
     'prevTarget',
     'nextTarget',
+    'refreshCandidates',
   ];
 
   if (controlActions.includes(msg.action)) {

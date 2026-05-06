@@ -21,6 +21,7 @@ const sTotal = document.getElementById('sTotal');
 const candidateNav = document.getElementById('candidateNav');
 const btnPrevTarget = document.getElementById('btnPrevTarget');
 const btnNextTarget = document.getElementById('btnNextTarget');
+const btnRefreshCandidates = document.getElementById('btnRefreshCandidates');
 const navIndex = document.getElementById('navIndex');
 const navTotal = document.getElementById('navTotal');
 
@@ -583,6 +584,20 @@ btnPrevTarget?.addEventListener('click', () => {
 btnNextTarget?.addEventListener('click', () => {
   sendToContent('nextTarget', {}, (resp) => {
     if (resp?.ok) updateCandidateNav(resp.index, resp.total, true);
+  });
+});
+
+btnRefreshCandidates?.addEventListener('click', () => {
+  if (btnRefreshCandidates.disabled) return;
+  btnRefreshCandidates.disabled = true;
+  btnRefreshCandidates.classList.add('spinning');
+  setStatus('正在重新扫描当前页商品并筛选候选…');
+  sendToContent('refreshCandidates', {}, (resp) => {
+    btnRefreshCandidates.disabled = false;
+    btnRefreshCandidates.classList.remove('spinning');
+    if (!resp?.ok) {
+      setStatus(resp?.error || '重新筛选失败，请确认已打开 Temu 页面。', 'err');
+    }
   });
 });
 
