@@ -5437,6 +5437,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 running: state.running,
                 total: getTotalCollected(state),
                 queueLen: state.targetQueue.length,
+                targetQueueIndex: state.targetQueueIndex || 0,
                 config: state.config,
                 stats: state.stats,
                 workflow: state.workflow,

@@ -224,9 +224,9 @@ function syncFromState() {
     if (!state.running && state.total > 0) {
       setStatus(`当前已采集 ${state.total} 条数据，可继续采集。`);
     }
-    // popup 打开时从 state 恢复候选导航条，防止 popup 关闭期间错过 candidatesReady 消息
+    // popup 打开时从 state 恢复候选导航条（getState 响应里用 queueLen/targetQueueIndex，不含完整 targetQueue 数组）
     const isConservative = state.config?.collectionMode === 'CONSERVATIVE';
-    const queueLen = state.targetQueue?.length || 0;
+    const queueLen = state.queueLen || 0;
     const queueIdx = state.targetQueueIndex || 0;
     console.log('[popup] syncFromState 恢复导航条 isConservative=', isConservative, 'queueLen=', queueLen, 'queueIdx=', queueIdx);
     updateCandidateNav(queueIdx, queueLen, isConservative);
@@ -537,6 +537,8 @@ let _navTotal = 0;
  */
 function updateCandidateNav(index, total, isConservative) {
   if (!candidateNav) return;
+  // 每次调用都打印，暴露是哪条调用链把按钮禁用
+  console.log('[nav] updateCandidateNav called: index=', index, 'total=', total, 'isConservative=', isConservative, '\n', new Error().stack);
   if (!isConservative) {
     candidateNav.classList.remove('visible');
     _navIndex = 0;
