@@ -350,6 +350,10 @@ port.onMessage.addListener((message) => {
     setPhase('done');
     updateStats(message);
     setStatus(`采集结束，累计保存 ${message.total} 条数据。追踪日志已上传后端。`, 'ok');
+    // 采集结束，清空导航条候选缓存，回到等待状态
+    _navIndex = 0;
+    _navTotal = 0;
+    syncNavByMode();
   }
 });
 
@@ -509,8 +513,16 @@ logoutBtn?.addEventListener('click', async () => {
 
 // ── 候选翻页导航 ──────────────────────────────────────────────────────────────
 
+// 模块级缓存：记住最近一次 candidatesReady 的数据，防止 stateSync → fillConfig → syncNavByMode
+// 把已就绪的导航条重置回 "— / —" 状态。
+let _navIndex = 0;
+let _navTotal = 0;
+
 /**
- * 更新导航条显示（仅辅助模式且有多条候选时显示）。
+ * 更新导航条显示。
+ * - isConservative=false → 隐藏，清空缓存
+ * - isConservative=true, total>0 → 显示并激活按钮
+ * - isConservative=true, total=0 → 显示但禁用（等待初筛）
  * @param {number} index 当前索引（0-based）
  * @param {number} total 候选总数
  * @param {boolean} isConservative 是否辅助模式
@@ -519,9 +531,13 @@ function updateCandidateNav(index, total, isConservative) {
   if (!candidateNav) return;
   if (!isConservative) {
     candidateNav.classList.remove('visible');
+    _navIndex = 0;
+    _navTotal = 0;
     return;
   }
-  // 辅助模式：立即显示导航条；候选未就绪时两端按钮禁用、计数显示 —
+  // 更新缓存
+  _navIndex = index;
+  _navTotal = total;
   candidateNav.classList.add('visible');
   if (total > 0) {
     navIndex.textContent = index + 1;
@@ -536,14 +552,15 @@ function updateCandidateNav(index, total, isConservative) {
   }
 }
 
-/** 根据当前模式选择器立即同步导航条显示/隐藏。 */
+/**
+ * 根据当前模式选择器同步导航条显示/隐藏。
+ * 复用 _navIndex/_navTotal 缓存，不会把已就绪的按钮重置回禁用状态。
+ */
 function syncNavByMode() {
   const isConservative = (cfgCollectionMode?.value || 'CONSERVATIVE') !== 'AGGRESSIVE';
-  if (isConservative) {
-    updateCandidateNav(0, 0, true);
-  } else {
-    if (candidateNav) candidateNav.classList.remove('visible');
-  }
+  // 切换到激进模式：隐藏并清空缓存（下次切回辅助从头开始）
+  // 切换到辅助模式或刷新：用缓存数据重绘，不改变按钮可用状态
+  updateCandidateNav(_navIndex, _navTotal, isConservative);
 }
 
 btnPrevTarget?.addEventListener('click', () => {
