@@ -1834,7 +1834,9 @@ async function runInitialFilter(state) {
         reason: 'initial-filter-hit',
     });
     // 先通知 popup 候选数量（高亮前发出，避免 scrollToRenderedAnchor 阻塞导致按钮迟迟不可用）
+    logAction('info', `[candidatesReady] 即将发送 → index=0 total=${queue.length} isConservative=${isConservative}`);
     notify({action: 'candidatesReady', index: 0, total: queue.length, isConservative});
+    logAction('info', `[candidatesReady] 已发送`);
     await highlightPendingItem(queue[0], '初筛命中，点击后进入下一商品');
 }
 
@@ -5490,6 +5492,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await patchState({targetQueueIndex: newIndex});
             clearPendingAutoClick();
             // 先更新 popup 导航条，再高亮（避免 scrollToRenderedAnchor 阻塞）
+            logAction('info', `[candidatesReady] 翻页发送 → index=${newIndex} total=${queue.length}`);
             notify({action: 'candidatesReady', index: newIndex, total: queue.length, isConservative: true});
             sendResponse({ok: true, index: newIndex, total: queue.length});
             await highlightPendingItem(queue[newIndex], '初筛命中，点击后进入下一商品');

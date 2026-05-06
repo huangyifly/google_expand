@@ -297,7 +297,9 @@ port.onMessage.addListener((message) => {
   }
 
   if (message.action === 'candidatesReady') {
+    console.log('[popup] candidatesReady 收到:', message.index, '/', message.total, 'isConservative=', message.isConservative);
     updateCandidateNav(message.index, message.total, message.isConservative);
+    console.log('[popup] updateCandidateNav 调用完，_navTotal=', _navTotal, 'next disabled=', btnNextTarget?.disabled);
     return;
   }
 
@@ -560,6 +562,7 @@ function syncNavByMode() {
   const isConservative = (cfgCollectionMode?.value || 'CONSERVATIVE') !== 'AGGRESSIVE';
   // 切换到激进模式：隐藏并清空缓存（下次切回辅助从头开始）
   // 切换到辅助模式或刷新：用缓存数据重绘，不改变按钮可用状态
+  console.log('[popup] syncNavByMode 调用，mode=', cfgCollectionMode?.value, '_navTotal=', _navTotal);
   updateCandidateNav(_navIndex, _navTotal, isConservative);
 }
 
