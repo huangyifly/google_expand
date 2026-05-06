@@ -1609,13 +1609,10 @@ async function productStreamTick() {
         return;
     }
 
-    // 辅助模式：用户自己控制滚动，不强制跳到页面底部
-    if (refreshed.config?.collectionMode !== COLLECTION_MODES.CONSERVATIVE) {
-        try {
-            window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
-        } catch (_) {}
-        await sleep(400);
-    }
+    try {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+    } catch (_) {}
+    await sleep(400);
 
     let loadMoreBtn = null;
     for (const stream of streams) {
@@ -1642,7 +1639,6 @@ async function productStreamTick() {
         highlightLoadMoreButton(loadMoreBtn, {
             autoClick: shouldAuto,
             waitSec: refreshed.config.intervalSec,
-            noScroll: refreshed.config.collectionMode === COLLECTION_MODES.CONSERVATIVE,
         });
         notify({ action: 'clickMore', total: getTotalCollected(refreshed), autoClick: shouldAuto });
         if (shouldAuto) {
@@ -2114,10 +2110,7 @@ async function ensureRelatedAreaReady(currentId) {
     });
 
     highlightRelatedArea(relatedArea);
-    // 辅助模式：用户自己浏览，不自动将联想区滚入视口
-    if (state.config?.collectionMode !== COLLECTION_MODES.CONSERVATIVE) {
-        scrollElementToViewportAnchor(relatedArea, 0.18);
-    }
+    scrollElementToViewportAnchor(relatedArea, 0.18);
     await sleep(700);
 
     return waitForRelatedCandidates(currentId);
@@ -2400,35 +2393,29 @@ async function highlightPendingItem(item, labelText) {
     applyPendingHighlight(target, finalLabel);
     logAction('info', `高亮已应用：goodsId=${item.goodsId}`);
     keepPendingHighlightAlive(item, finalLabel);
-
-    // 辅助模式：用户自己看页面，不自动滚动（避免干扰用户视角）
-    const hlState = await getState();
-    if (hlState.config?.collectionMode !== COLLECTION_MODES.CONSERVATIVE) {
-        const scrollAnchor = item.source === 'related' ? 0.16 : 0.22;
-        logAction('info', `开始滚动至高亮商品：goodsId=${item.goodsId}`, {
+    const scrollAnchor = item.source === 'related' ? 0.16 : 0.22;
+    logAction('info', `开始滚动至高亮商品：goodsId=${item.goodsId}`, {
+        goodsId: item.goodsId,
+        source: item.source,
+        anchorRatio: scrollAnchor
+    });
+    const scrolled = await scrollToRenderedAnchor(target, scrollAnchor, 50, 800000, item);
+    if (scrolled) {
+        const rectFinal = target.getBoundingClientRect();
+        const desiredTop = Math.round(window.innerHeight * scrollAnchor);
+        logAction('info', `滚动完成：goodsId=${item.goodsId} 偏差=${Math.round(rectFinal.top - desiredTop)}px`, {
             goodsId: item.goodsId,
-            source: item.source,
-            anchorRatio: scrollAnchor
+            anchorRatio: scrollAnchor,
+            desiredTop,
+            rectFinal_top: Math.round(rectFinal.top),
+            delta: Math.round(rectFinal.top - desiredTop),
         });
-        const scrolled = await scrollToRenderedAnchor(target, scrollAnchor, 50, 800000, item);
-        if (scrolled) {
-            const rectFinal = target.getBoundingClientRect();
-            const desiredTop = Math.round(window.innerHeight * scrollAnchor);
-            logAction('info', `滚动完成：goodsId=${item.goodsId} 偏差=${Math.round(rectFinal.top - desiredTop)}px`, {
-                goodsId: item.goodsId,
-                anchorRatio: scrollAnchor,
-                desiredTop,
-                rectFinal_top: Math.round(rectFinal.top),
-                delta: Math.round(rectFinal.top - desiredTop),
-            });
-        } else {
-            logAction('warn', `滚动超时：goodsId=${item.goodsId} 元素 3s 内未渲染`, {
-                goodsId: item.goodsId,
-                source: item.source
-            });
-        }
+    } else {
+        logAction('warn', `滚动超时：goodsId=${item.goodsId} 元素 3s 内未渲染`, {
+            goodsId: item.goodsId,
+            source: item.source
+        });
     }
-
     debugLog('highlight-applied', {
         goodsId: item.goodsId,
         source: item.source,
@@ -3138,10 +3125,7 @@ function highlightLoadMoreButton(button, options = {}) {
         'data-temu-load-more-label',
         options.autoClick ? '即将自动点击查看更多商品' : '请手动点击查看更多商品'
     );
-    // 辅助模式：用户自己看页面，不自动滚到"查看更多"按钮
-    if (!options.noScroll) {
-        button.scrollIntoView({behavior: 'smooth', block: 'center'});
-    }
+    button.scrollIntoView({behavior: 'smooth', block: 'center'});
     if (!options.autoClick) {
         button.addEventListener('click', handleManualLoadMoreClick, {once: true});
     }
