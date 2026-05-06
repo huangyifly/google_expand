@@ -259,6 +259,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     'triggerLoadMoreNow',
     'applyLocalWarehouseFilter',
     'setWorkflowState',
+    'prevTarget',
+    'nextTarget',
   ];
 
   if (controlActions.includes(msg.action)) {
