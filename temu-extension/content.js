@@ -89,6 +89,105 @@ const TASK_MODES = {
     HARVEST: 'HARVEST',
     GRAPH: 'GRAPH',
 };
+
+// ─── 流程追踪器（Trace） ──────────────────────────────────────────────
+// 在每个决策节点调用 traceNode()，记录"为什么这么做 / 依据什么参数 / 走向哪里"。
+// 所有记录按 runId 存入 chrome.storage.local（key = temu_trace_{runId}）。
+// 运行结束后可调用 downloadTrace(runId) 导出为 .jsonl 文件。
+
+const TRACE_KEY_PREFIX = 'temu_trace_';
+const TRACE_FLUSH_MS = 2000;
+const TRACE_MAX_ENTRIES = 3000;
+
+let _traceRunId = '';
+let _traceSeq = 0;
+let _traceBuf = [];
+let _traceFlushTimer = null;
+
+/** 初始化追踪器，每次 run 开始时调用 */
+function initTrace(runId) {
+    _traceRunId = runId || '';
+    _traceSeq = 0;
+    _traceBuf = [];
+    if (_traceFlushTimer) { clearTimeout(_traceFlushTimer); _traceFlushTimer = null; }
+}
+
+/**
+ * 记录一个决策节点
+ * @param {string} layer   所在层：'main' | 'stream' | 'filter' | 'detail' | 'upload'
+ * @param {string} node    节点标识（英文 snake_case，唯一）
+ * @param {string} why     中文说明：依据什么条件 / 为什么走这条路
+ * @param {object} params  当时的关键参数快照
+ * @param {string} outcome 执行结果：调用了什么 / 走向哪个分支
+ */
+function traceNode(layer, node, why, params = {}, outcome = '') {
+    if (!_traceRunId) return;
+    _traceSeq += 1;
+    _traceBuf.push({
+        ts: new Date().toISOString(),
+        runId: _traceRunId,
+        seq: _traceSeq,
+        layer,
+        node,
+        why,
+        params,
+        outcome,
+    });
+    if (!_traceFlushTimer) {
+        _traceFlushTimer = setTimeout(() => {
+            _traceFlushTimer = null;
+            _flushTrace();
+        }, TRACE_FLUSH_MS);
+    }
+}
+
+async function _flushTrace() {
+    if (!_traceRunId || _traceBuf.length === 0) return;
+    const key = TRACE_KEY_PREFIX + _traceRunId;
+    const toWrite = [..._traceBuf];
+    _traceBuf = [];
+    const existing = await new Promise((r) => chrome.storage.local.get([key], (res) => r(res[key] || [])));
+    const combined = [...existing, ...toWrite].slice(-TRACE_MAX_ENTRIES);
+    await new Promise((r) => chrome.storage.local.set({ [key]: combined }, r));
+}
+
+/**
+ * run 结束时立即落盘，然后把所有 trace 记录上传到后端。
+ * 上传成功后清除本地 storage，避免无限积累。
+ * @param {string} runId
+ */
+async function flushAndUploadTrace(runId) {
+    const id = runId || _traceRunId;
+    if (!id) return;
+
+    // 先把内存缓冲区落盘
+    if (_traceFlushTimer) { clearTimeout(_traceFlushTimer); _traceFlushTimer = null; }
+    await _flushTrace();
+
+    // 从 storage 读出全部记录
+    const key = TRACE_KEY_PREFIX + id;
+    const entries = await new Promise((r) =>
+        chrome.storage.local.get([key], (res) => r(res[key] || []))
+    );
+
+    if (entries.length === 0) {
+        logAction('info', '[trace] 无记录，跳过上传');
+        return;
+    }
+
+    // 上传到后端
+    const resp = await callRuntime('backendUploadTrace', { runUuid: id, entries });
+    if (resp?.ok) {
+        logAction('info', `[trace] 已上传 ${resp.count} 条追踪记录到后端`);
+        // 上传成功，清理本地 storage
+        chrome.storage.local.remove([key]);
+        chrome.storage.local.remove(['temu_last_trace_run_id']);
+    } else {
+        logAction('warn', `[trace] 上传失败（${resp?.error}），本地记录保留`);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 /**
  * 兜底排除词列表（后端不可达时使用）。
  * 运行时真正使用的是 `excludedTitleKeywords`，它会在启动时被后端数据覆盖。
@@ -293,6 +392,7 @@ function defaultState() {
         pendingUploadEdges: [],
         processedIds: [],
         targetQueue: [],
+        targetQueueIndex: 0,   // 辅助模式下当前高亮的是 targetQueue 第几条（0-based）
         lastSweptGoodsId: '',
         batchStartCount: 0,
         // 最近一次重置 batchStartCount 时所在的 URL。main() 在每次运行时比较
@@ -476,6 +576,21 @@ function nowIsoText() {
  */
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 将基准秒数加上随机浮动后转为毫秒，防止 Temu 通过固定间隔识别爬虫特征。
+ * 浮动范围：baseSec ± (baseSec × jitterRatio)，默认 ±30%。
+ * 例：baseSec=10 → 随机返回 [7000, 13000] ms。
+ *
+ * @param {number} baseSec 基准秒数
+ * @param {number} [jitterRatio=0.3] 浮动比例（0~1）
+ * @returns {number} 含随机浮动的毫秒数
+ */
+function jitteredMs(baseSec, jitterRatio = 0.3) {
+    const base = baseSec * 1000;
+    const delta = base * jitterRatio;
+    return Math.round(base + (Math.random() * 2 - 1) * delta);
 }
 
 /**
@@ -853,6 +968,14 @@ function renderTimelinePanel() {
 let mainLock = false;
 let pendingLoadMoreResumeTimer = null;
 
+/**
+ * 记录每条 stream 上一次 fiber 扫描后的节点数（含被过滤的本地仓商品）。
+ * key = stream.id，value = number。
+ * 用 Map 持久化跨 tick，因为 enumerateProductStreams() 每次都重建 stream 对象。
+ * 页面导航后 content script 会重新注入，此 Map 自动清空，无需手动重置。
+ */
+const _streamFiberCountMap = new Map();
+
 // content script 注入后立即拉取一次排除词；失败时保留本地兜底，不阻塞主流程
 loadExclusionKeywords();
 
@@ -924,22 +1047,37 @@ async function main() {
 
     try {
         const state = await getState();
+
+        // ── [节点] main:not_running ────────────────────────────────────
+        // 判断：state.running = false，说明用户尚未点"开始"或已停止
+        // 决策：直接跳过本轮，不做任何采集操作
         if (!state.running) {
             logAction('warn', 'main() 跳过：采集未启动');
+            traceNode('main', 'not_running', '采集未启动（state.running=false），跳过本轮', {
+                running: state.running,
+                url: location.href,
+            }, '→ return，等待下次 tick 或用户点开始');
             return;
         }
 
         notifyState(state);
 
-        // 非 Temu 页：尝试回跳到最近一次跑过商品流的页面（兼容旧字段 listingUrl）
+        // ── [节点] main:non_temu_page ──────────────────────────────────
+        // 判断：当前 URL 不匹配 temu.com 域名
+        // 决策：退出本轮，不采集非 Temu 页面
         if (getPageType() === 'other') {
             logAction('warn', `非 Temu 页面`);
+            traceNode('main', 'non_temu_page', '当前页面不是 temu.com，无法采集', {
+                url: location.href,
+                pageType: getPageType(),
+            }, '→ return，等待用户切回 Temu 页面');
             return;
         }
-        // 1) 新 URL 登陆 → 重置本页 batch 计数。只比对 origin + pathname，
-        //    忽略 query string 和 hash，避免 Temu 在「查看更多」后悄悄修改
-        //    query 参数（如 refer_page_name、_x_sessn_id）导致误判为新页面、
-        //    batchStartCount 反复归零、batchLoaded 永远不达标的死循环。
+
+        // ── [节点] main:url_reset ──────────────────────────────────────
+        // 判断：location.pathname 与上次记录的 batchAnchorUrl 不同 → 说明跳转到了新页面
+        // 决策：重置 batchStartCount，让 batchLoaded 从 0 开始重新计算本页采集量
+        //       （每个页面独立计数，防止 query string 变化引起的误判）
         const currentPageKey = location.origin + location.pathname;
         const anchorPageKey = (() => {
             try {
@@ -957,35 +1095,54 @@ async function main() {
                 totalCollectedHistory: state.totalCollected || 0,
                 seenGoodsIdsSize: (state.seenGoodsIds || []).length,
             });
+            traceNode('main', 'url_reset', '跳转到了新页面，本页 batch 计数从 0 开始', {
+                prevAnchorUrl: state.batchAnchorUrl || '(空)',
+                totalCollectedBeforeReset: getTotalCollected(state),
+                collectedInPrev: state.collected.length,
+            }, `→ batchStartCount 重置为 ${getTotalCollected(state)}`);
+            // 新页面进入时清空 fiber 节点数缓存，避免跨页残留导致 waitForFiberNodeCount 误判
+            _streamFiberCountMap.clear();
             await patchState({
                 batchStartCount: getTotalCollected(state),
                 batchAnchorUrl: location.href,
             });
         }
 
-        // 2) 当前 URL 是商品锚点 → 补齐主商品字段（独立函数，列表/详情/搜索/任意页都生效）
+        // ── [节点] main:detail_scrape_triggered ───────────────────────
+        // 判断：URL 含 -g-数字.html，说明当前是商品详情页
+        // 决策：先抓主商品完整字段（价格/销量/评分等），补全 collected 里的同 goodsId 记录
         if (hasCurrentProductAnchor()) {
             logAction('info', '当前页是商品详情，触发主商品字段补全');
+            traceNode('main', 'detail_scrape_triggered', 'URL 含商品锚点（-g-数字.html），需要提取详情页完整字段', {
+                goodsId: getGoodsIdFromUrl(location.href),
+            }, '→ scrapeAndUpsertCurrentProduct()');
             await scrapeAndUpsertCurrentProduct();
         }
 
         const refreshed = await getState();
-
-        // 3) batchSize gate：无论 listing 还是 detail，先判断本页 batch 是否已采够。
-        //    batchStartCount 已在 step 1 针对当前 URL 重置过，所以 batchLoaded 代表的是
-        //    "本页之内"已采的条数，detail 和 listing 各自独立计数。
-        //    没满就先跑 productStreamTick 继续采（期间会 auto-click 联想区"查看更多"），
-        //    本轮 main() 直接 return，等下一轮再判定。
         const batchLoaded = getTotalCollected(refreshed) - refreshed.batchStartCount;
         const batchFull = batchLoaded >= refreshed.config.batchSize
             || getTotalCollected(refreshed) >= refreshed.config.totalLimit;
-        debugger
+        const isConservativeMode = refreshed.config?.collectionMode === COLLECTION_MODES.CONSERVATIVE;
+
+        // ── [节点] main:batch_gate ─────────────────────────────────────
+        // 判断：本页已采数量（batchLoaded）是否达到 batchSize（默认 100）
+        //       或全局总量是否超过 totalLimit
+        // 决策（未满）：继续扫描采集，不进入选目标流程
+        // 决策（已满）：停止采集，进入选目标 / 初筛流程
         if (!batchFull) {
             logAction('info', `本批未满（${batchLoaded}/${refreshed.config.batchSize}），进入商品流扫描`, {
                 batchLoaded,
                 batchSize: refreshed.config.batchSize,
                 total: getTotalCollected(refreshed),
             });
+            traceNode('main', 'batch_gate_open', `本页已采 ${batchLoaded} 条，未达 batchSize(${refreshed.config.batchSize})，继续扫描`, {
+                batchLoaded,
+                batchSize: refreshed.config.batchSize,
+                totalCollected: getTotalCollected(refreshed),
+                totalLimit: refreshed.config.totalLimit,
+                batchStartCount: refreshed.batchStartCount,
+            }, '→ productStreamTick()');
             await transitionTo(FSM_STATES.LIST_DISCOVERY, {
                 phase: 'listing',
                 reason: 'stream-discovery',
@@ -995,18 +1152,28 @@ async function main() {
                 listingUrl: location.href,
                 lastDiscoveryUrl: location.href,
             });
-            await sleep(1500);
+            // 辅助模式用户在场，无需抖动延迟；激进模式加随机间隔降低特征
+            if (!isConservativeMode) await sleep(jitteredMs(1.5));
             await productStreamTick();
             return;
         }
 
-        // 4) batch 已满 + 已有目标队列 → 直接高亮第一项，等用户/auto-click 跳转
+        // ── [节点] main:queue_ready ────────────────────────────────────
+        // 判断：batch 已满 + targetQueue 里已有上次 runInitialFilter 选好的目标
+        // 决策：直接高亮队列第一个目标等待跳转，跳过重新筛选（省一次 filter 计算）
         if (refreshed.targetQueue.length > 0) {
             const nextItem = refreshed.targetQueue[0];
             logAction('info', `本批已满，队列已有目标（${refreshed.targetQueue.length} 条），直接高亮等跳转`, {
                 goodsId: nextItem.goodsId,
                 queueLen: refreshed.targetQueue.length,
             });
+            traceNode('main', 'queue_ready', `batch 已满且队列非空，跳过初筛直接高亮目标`, {
+                batchLoaded,
+                batchSize: refreshed.config.batchSize,
+                queueLen: refreshed.targetQueue.length,
+                nextGoodsId: nextItem.goodsId,
+                nextName: (nextItem.name || nextItem.fullTitle || '').slice(0, 30),
+            }, `→ highlightPendingItem(goodsId=${nextItem.goodsId})`);
             await transitionTo(FSM_STATES.TARGET_SELECTED, {
                 phase: 'navigating',
                 reason: 'queue-ready',
@@ -1025,12 +1192,20 @@ async function main() {
             return;
         }
 
-        // 5) batch 已满但队列空 → 进入"商品流发现"，由 productStreamTick 末尾的
-        //    runInitialFilter 挑目标装队列
+        // ── [节点] main:filter_needed ──────────────────────────────────
+        // 判断：batch 已满 + 队列为空（上一轮 filter 结果已消费完）
+        // 决策：进入商品流扫描，productStreamTick 扫完后会调 runInitialFilter 补充队列
         logAction('info', '本批已满，队列为空，进入商品流发现挑选目标', {
             batchLoaded,
             total: getTotalCollected(refreshed),
         });
+        traceNode('main', 'filter_needed', 'batch 已满但目标队列为空，需要重新扫描并筛选下一目标', {
+            batchLoaded,
+            batchSize: refreshed.config.batchSize,
+            totalCollected: getTotalCollected(refreshed),
+            totalLimit: refreshed.config.totalLimit,
+            processedCount: (refreshed.processedIds || []).length,
+        }, '→ productStreamTick() → runInitialFilter()');
         await transitionTo(FSM_STATES.LIST_DISCOVERY, {
             phase: 'listing',
             reason: 'stream-discovery',
@@ -1040,7 +1215,7 @@ async function main() {
             listingUrl: location.href,
             lastDiscoveryUrl: location.href,
         });
-        await sleep(1500);
+        if (!isConservativeMode) await sleep(jitteredMs(1.5));
         await productStreamTick();
     } finally {
         mainLock = false;
@@ -1154,30 +1329,128 @@ function enumerateProductStreams() {
  * @param {{shouldRemoveLocalWarehouse: boolean, currentId: string}} context
  * @returns {Promise<{removed: number, items: Array, edges: Array}>}
  */
-async function processStream(stream, context) {
-    // 1. 按流策略删本地仓（main 用网格选择器，related 删 parentElement）
-    const removed = context.shouldRemoveLocalWarehouse
-        ? stream.removeLocalWarehouse()
-        : 0;
+/**
+ * 通过 background 的 chrome.scripting.executeScript(world=MAIN) 读取 React Fiber 数据。
+ * 绕过 content script 隔离世界限制，同时不受页面 CSP inline-script 限制。
+ *
+ * @returns {Promise<Array>} 页面上所有命中 goodsInfo 的原始数据数组
+ */
+async function readRawItemsFromPageWorld() {
+    const resp = await callRuntime('readFiberData');
+    return resp?.items || [];
+}
 
-    // 2. sweep 触发懒加载
-    await sweepCardsIntoView();
-
-    // 3. 提取 + 去重
-    const cards = stream.getCards();
-    logAction('info', `流 [${stream.id}] sweep 完成，找到 ${cards.length} 张卡片`, {
-        streamId: stream.id,
-        cardCount: cards.length,
-    });
-    const items = [];
-    const seen = new Set();
-    for (let index = 0; index < cards.length; index += 1) {
-        const item = extractItemFromCard(cards[index], stream.sourceTag);
-        if (!item?.goodsId || seen.has(item.goodsId)) continue;
-        seen.add(item.goodsId);
-        items.push({...item, domIndex: index, sourceRootId: stream.id});
+/**
+ * 轮询等待页面上 data-tooltip^="goodName-" 节点数量超过 minCount。
+ * 用于"查看更多"点击后等待新卡片渲染到 DOM。
+ *
+ * @param {number} minCount 期望超过的数量
+ * @param {{intervalMs?: number, timeoutMs?: number}} opts
+ * @returns {Promise<number>} 实际节点数量
+ */
+async function waitForFiberNodeCount(minCount, {intervalMs = 300, timeoutMs = 8000} = {}) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const count = document.querySelectorAll('[data-tooltip^="goodName-"]').length;
+        if (count > minCount) {
+            logAction('info', `[fiber] 节点数从 ${minCount} 增长到 ${count}，开始读取`);
+            return count;
+        }
+        await sleep(intervalMs);
     }
-    logAction('info', `流 [${stream.id}] 去重后有效商品 ${items.length} 条`);
+    const fallback = document.querySelectorAll('[data-tooltip^="goodName-"]').length;
+    logAction('warn', `[fiber] 等待超时（${timeoutMs}ms），当前节点数=${fallback}，直接读取`);
+    return fallback;
+}
+
+/**
+ * 从 React Fiber 内存读取联想区所有商品数据（通过注入页面主世界脚本）。
+ * 无需等待水合（知了数据注入），瞬间读取。
+ * minCount > 0 时会先轮询等待节点数增长（用于"查看更多"后的二次扫描）。
+ *
+ * @param {{streamId: string, sourceTag: string, currentId: string, shouldRemoveLocalWarehouse: boolean, minCount?: number}} opts
+ * @returns {Promise<Array>} items 数组，附带 _removedCount 属性记录过滤掉的本地仓数量
+ */
+async function readItemsFromReactFiber({streamId, sourceTag, currentId, shouldRemoveLocalWarehouse, minCount = 0}) {
+    if (minCount > 0) {
+        await waitForFiberNodeCount(minCount);
+    }
+
+    const rawList = await readRawItemsFromPageWorld();
+    logAction('info', `[fiber] 页面主世界返回 ${rawList.length} 条原始数据`, {streamId});
+
+    const map = new Map();
+    let removedCount = 0;
+
+    for (const o of rawList) {
+        const goodsId = o.goodsId?.toString();
+        if (!goodsId) continue;
+
+        // 跳过当前详情页自身
+        if (goodsId === currentId) continue;
+
+        // 过滤本地仓（wareHouseType !== 0）
+        if (shouldRemoveLocalWarehouse && o.wareHouseType !== 0) {
+            removedCount++;
+            continue;
+        }
+
+        if (!map.has(goodsId)) {
+            const comment = o.comment || {};
+            const starRating = comment.goodsScore != null ? String(comment.goodsScore) : '';
+            const reviewCount = comment.commentNumTips || '';
+            const salesTipList = Array.from(o.salesTipTextList || []);
+            const salesRaw = salesTipList[1] || '';
+            const sales = salesTipList.join(' ').trim();
+            const salesNum = parseInt(salesRaw.replace(/[,，件]/g, ''), 10) || 0;
+            const link = o.seoLinkUrl
+                ? (location.origin + o.seoLinkUrl)
+                : '';
+
+            map.set(goodsId, {
+                goodsId,
+                link,
+                name: (o.title || o.pageAlt || '').slice(0, 80),
+                price: o.priceInfo?.priceStr || '',
+                sales,
+                salesNum,
+                starRating,
+                reviewCount,
+                listingTime: '',
+                mallId: o.mallId?.toString() || '',
+                source: sourceTag,
+                sourceRootId: streamId,
+                scrapedAt: nowText(),
+            });
+        }
+    }
+
+    const items = Array.from(map.values());
+    logAction('info', `[fiber] 去重后 ${items.length} 条，过滤本地仓 ${removedCount} 条`, {
+        streamId,
+        total: items.length,
+        removed: removedCount,
+        sample: items.slice(0, 3).map((x) => `${x.goodsId}|${x.name.slice(0, 12)}|${x.price}`),
+    });
+
+    items._removedCount = removedCount;
+    return items;
+}
+
+async function processStream(stream, context) {
+    // 1. 从 React Fiber 内存读取商品数据（替代 DOM 抠字段 + sweepCardsIntoView）
+    const items = await readItemsFromReactFiber({
+        streamId: stream.id,
+        sourceTag: stream.sourceTag,
+        currentId: context.currentId,
+        shouldRemoveLocalWarehouse: context.shouldRemoveLocalWarehouse,
+        minCount: _streamFiberCountMap.get(stream.id) || 0,
+    });
+    const removed = items._removedCount || 0;
+    // 更新本轮实际扫到的节点数（含被过滤的），供下次"查看更多"后的轮询使用
+    // 用模块级 Map 持久化，因为 enumerateProductStreams() 每次重建 stream 对象
+    _streamFiberCountMap.set(stream.id, items.length + removed);
+    delete items._removedCount;
 
     // 4. 构建关系边
     const edges = [];
@@ -1217,13 +1490,24 @@ async function processStream(stream, context) {
 async function productStreamTick() {
     const state = await getState();
     const streams = enumerateProductStreams();
+
+    // ── [节点] stream:scan_start ───────────────────────────────────────
+    // 判断：enumerateProductStreams() 返回了几条商品流
+    // 说明：目前主流（列表页主区）被注释掉，只有详情页的联想流（#goodsRecommend）生效
+    //       如果 streams.length=0，说明当前页没有联想区，后续会走 no_streams 分支
     logAction('info', `商品流扫描开始，发现 ${streams.length} 条流`, {
         streamIds: streams.map((stream) => stream.id),
     });
+    traceNode('stream', 'scan_start', '开始枚举页面商品流（主流已注释，当前仅扫联想流）', {
+        streamCount: streams.length,
+        streamIds: streams.map((s) => s.id),
+        currentId: getGoodsIdFromUrl(location.href),
+        removeLocalWarehouse: state.config?.removeLocalWarehouse,
+    }, streams.length > 0 ? `→ 逐流处理 ${streams.length} 条流` : '→ 无流可扫，后续进 runInitialFilter');
+
     const currentId = getGoodsIdFromUrl(location.href);
     const shouldRemoveLocalWarehouse = Boolean(state.config?.removeLocalWarehouse);
 
-    // ── 逐流处理（唯一感知页面类型的地方是 enumerateProductStreams，这里不区分） ──
     let totalAdded = 0;
     let totalRemovedLocalWarehouse = 0;
     const perStreamStats = [];
@@ -1231,8 +1515,16 @@ async function productStreamTick() {
 
     for (const stream of streams) {
         const ready = await stream.ensureReady();
+
+        // ── [节点] stream:not_ready ────────────────────────────────────
+        // 判断：stream.ensureReady() 返回 false
+        // 原因：联想流需要先滚到底部触发 Temu 懒加载，如果滚动后仍未渲染则返回 false
+        // 决策：跳过该流，不采集，继续处理其他流
         if (!ready) {
             logAction('warn', `流 [${stream.id}] 未就绪，跳过`);
+            traceNode('stream', 'not_ready', `流 [${stream.id}] 未就绪（联想区未渲染或无商品），跳过`, {
+                streamId: stream.id,
+            }, '→ continue，跳过该流');
             perStreamStats.push({id: stream.id, ready: false, scraped: 0, added: 0, removed: 0});
             continue;
         }
@@ -1242,12 +1534,23 @@ async function productStreamTick() {
             currentId,
         });
         const added = await upsertItems(items);
+
+        // ── [节点] stream:processed ────────────────────────────────────
+        // 记录本流处理结果：找到多少商品、去重后新增多少、删除多少本地仓商品
         logAction('info', `流 [${stream.id}] 扫描完成：发现 ${items.length} 条，新增 ${added} 条，删本地仓 ${removed} 条`, {
             scraped: items.length,
             added,
             removed,
             streamId: stream.id,
         });
+        traceNode('stream', 'processed', `流 [${stream.id}] 本轮扫描完成`, {
+            streamId: stream.id,
+            scraped: items.length,
+            newAdded: added,
+            alreadySeen: items.length - added,
+            localWarehouseRemoved: removed,
+            edgesFound: edges.length,
+        }, added > 0 ? `新增 ${added} 条商品到 collected` : '0 新增（全部已在 seenGoodsIds）');
 
         totalAdded += added;
         totalRemovedLocalWarehouse += removed;
@@ -1264,7 +1567,9 @@ async function productStreamTick() {
 
     await patchState({stats: {listingTotal: getTotalCollected(refreshed)}});
 
-
+    // ── [节点] stream:batch_full ───────────────────────────────────────
+    // 判断：本页累计采集量（batchLoaded）已达 batchSize，或全局总量超 totalLimit
+    // 决策：停止继续采集，进入初筛挑选下一个要跳转的目标
     if (
         batchLoaded >= refreshed.config.batchSize ||
         getTotalCollected(refreshed) >= refreshed.config.totalLimit
@@ -1273,66 +1578,84 @@ async function productStreamTick() {
             batchLoaded,
             total: getTotalCollected(refreshed),
         });
+        traceNode('stream', 'batch_full', `本页已采 ${batchLoaded} 条达到 batchSize(${refreshed.config.batchSize})，停止采集进入初筛`, {
+            batchLoaded,
+            batchSize: refreshed.config.batchSize,
+            totalCollected: getTotalCollected(refreshed),
+            totalLimit: refreshed.config.totalLimit,
+            perStreamStats,
+        }, '→ runInitialFilter()');
         await runInitialFilter(await getState());
         return;
     }
 
-    // 本轮扫描 0 新增说明当前可见区域全是已见商品（seenIds 全覆盖）。
-    // 此时点"查看更多"只会加载同类商品，大概率同样已见，陷入无限循环。
-    // 直接进初筛，由 runInitialFilter 判断是否换页/结束。
+    // ── [节点] stream:zero_new_items ──────────────────────────────────
+    // 判断：本轮所有流加起来 0 新增
+    // 原因：页面上所有商品已在 seenGoodsIds 里，继续滚动加载的也会是同类商品
+    // 决策：直接进初筛，避免陷入"点查看更多 → 加载旧商品 → 0 新增 → 再点"的死循环
     if (totalAdded === 0) {
         logAction('info', '本轮扫描 0 新增（全部已见），跳过"查看更多"，进入初筛', {
             batchLoaded,
             total: getTotalCollected(refreshed),
             perStreamStats,
         });
+        traceNode('stream', 'zero_new_items', '本轮所有流均无新商品，继续滚动无意义，直接初筛', {
+            totalAdded: 0,
+            batchLoaded,
+            seenGoodsIdsCount: (refreshed.seenGoodsIds || []).length,
+            perStreamStats,
+        }, '→ runInitialFilter()（跳过"查看更多"）');
         await runInitialFilter(await getState());
         return;
     }
 
-    // sweep 只保证卡片水合，没必要把视口还原回去。直接把页面滚到底部，
-    // 让 Temu 把"查看更多"按钮渲染出来；sleep 给一点点时间让 DOM 稳定。
     try {
-        window.scrollTo({
-            top: document.documentElement.scrollHeight,
-            behavior: 'auto',
-        });
-    } catch (_) {
-        // scrollTo 在极端情况会 throw，忽略即可
-    }
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+    } catch (_) {}
     await sleep(400);
 
-    // 任一 stream 提供 load more 按钮就用之
     let loadMoreBtn = null;
     for (const stream of streams) {
         const btn = stream.getLoadMoreBtn?.();
-        if (btn) {
-            loadMoreBtn = btn;
-            break;
-        }
+        if (btn) { loadMoreBtn = btn; break; }
     }
 
     if (loadMoreBtn) {
-        // loadMoreBtn.scrollIntoView({behavior: 'smooth', block: 'center'});
         const shouldAuto = refreshed.config.collectionMode === COLLECTION_MODES.AGGRESSIVE;
+
+        // ── [节点] stream:load_more_found ─────────────────────────────
+        // 判断：找到"查看更多"按钮 + 本批未满
+        // 决策：按采集模式决定自动还是手动点击
+        //   - AGGRESSIVE：自动点击，继续采集不打断
+        //   - CONSERVATIVE：高亮按钮，等用户手动点，防误操作
         logAction('info', `找到"查看更多"按钮，${shouldAuto ? '即将自动点击' : '等待手动点击'}`);
+        traceNode('stream', 'load_more_found', `找到"查看更多"按钮，根据采集模式决定是否自动点击`, {
+            collectionMode: refreshed.config.collectionMode,
+            shouldAutoClick: shouldAuto,
+            batchLoaded,
+            totalAdded,
+        }, shouldAuto ? '→ handleAutoLoadMoreClick()（自动点击）' : '→ highlightLoadMoreButton()（等待手动点击）');
+
         highlightLoadMoreButton(loadMoreBtn, {
             autoClick: shouldAuto,
             waitSec: refreshed.config.intervalSec,
         });
-        notify({
-            action: 'clickMore',
-            total: getTotalCollected(refreshed),
-            autoClick: shouldAuto,
-        });
+        notify({ action: 'clickMore', total: getTotalCollected(refreshed), autoClick: shouldAuto });
         if (shouldAuto) {
             await handleAutoLoadMoreClick(loadMoreBtn, refreshed.config.intervalSec);
         }
         return;
     }
 
-    // 没有 load more 也没有可消费数据 → 让 runInitialFilter 决定 finish 或换页
+    // ── [节点] stream:no_load_more ────────────────────────────────────
+    // 判断：没找到"查看更多"按钮
+    // 原因：页面已经加载到底，或按钮还未渲染
+    // 决策：进初筛，由 runInitialFilter 决定是换页还是结束
     logAction('warn', '未找到"查看更多"按钮，进入初筛');
+    traceNode('stream', 'no_load_more', '未找到"查看更多"按钮，页面可能已到底', {
+        batchLoaded,
+        totalAdded,
+    }, '→ runInitialFilter()（由它决定换页/结束）');
     await runInitialFilter(await getState());
 }
 
@@ -1377,19 +1700,53 @@ async function runInitialFilter(state) {
     const pool = visibleCandidates.length > 0
         ? visibleCandidates
         : state.collected.filter((item) => item.goodsId && !processed.has(item.goodsId));
+
     logAction('info', `初筛：当前页可见商品 ${currentPageIds.size} 条，历史候选 ${visibleCandidates.length} 条（全量兜底：${pool === visibleCandidates ? '否' : '是'}）`, {
         visibleCount: currentPageIds.size,
         candidateCount: visibleCandidates.length,
         fallback: pool !== visibleCandidates,
     });
 
-    const queue = selectPriorityItems(pool, 1, state.recentProcessedNames || []);
+    // ── [节点] filter:pool_stats ───────────────────────────────────────
+    // 判断：从 collected 里筛出候选池
+    //   - 优先用当前页面 DOM 可见的商品（保证高亮时能找到节点）
+    //   - 全部处理过时退到全量 collected，防止死锁
+    traceNode('filter', 'pool_stats', '计算候选池：优先当前页可见商品，全处理过则退到全量', {
+        collectedTotal: state.collected.length,
+        processedCount: processed.size,
+        currentPageVisible: currentPageIds.size,
+        visibleCandidates: visibleCandidates.length,
+        usingFallback: pool !== visibleCandidates,
+        poolSize: pool.length,
+    }, pool.length > 0 ? `→ selectPriorityItems(pool=${pool.length})` : '→ 候选池为空，准备结束或扩池');
+
+    // 辅助模式多取几条候选供用户翻页浏览；激进模式只需要 1 条直接跳转
+    const isConservative = state.config?.collectionMode === COLLECTION_MODES.CONSERVATIVE;
+    const candidateLimit = isConservative ? 10 : 1;
+    const queue = selectPriorityItems(pool, candidateLimit, state.recentProcessedNames || []);
+
     if (queue.length > 0) {
-        logAction('info', `初筛命中：goodsId=${queue[0].goodsId} 名称="${(queue[0].name || queue[0].fullTitle || '').slice(0, 20)}"`, {
+        logAction('info', `初筛命中：goodsId=${queue[0].goodsId} 名称="${(queue[0].name || queue[0].fullTitle || '').slice(0, 20)}"${isConservative ? `（共 ${queue.length} 条候选可翻页）` : ''}`, {
             goodsId: queue[0].goodsId,
             starRating: queue[0].starRating,
             sales: queue[0].sales,
+            candidateCount: queue.length,
         });
+
+        // ── [节点] filter:selected ─────────────────────────────────────
+        // 判断：selectPriorityItems 从候选池中命中目标
+        // 优先规则：① 无评分新品（销量降序）② 有评分商品（销量降序+评价升序）
+        // 决策：把目标放入 targetQueue，高亮等待跳转（辅助模式可翻页）
+        traceNode('filter', 'selected', 'selectPriorityItems 命中目标，优先无评分高销量商品', {
+            goodsId: queue[0].goodsId,
+            name: (queue[0].name || queue[0].fullTitle || '').slice(0, 40),
+            starRating: queue[0].starRating || '(无)',
+            sales: queue[0].sales || '(无)',
+            salesNum: queue[0].salesNum || 0,
+            reviewCount: queue[0].reviewCount || '(无)',
+            sourceRootId: queue[0].sourceRootId,
+            candidateCount: queue.length,
+        }, `→ highlightPendingItem(goodsId=${queue[0].goodsId})`);
     } else {
         logAction('warn', '初筛无结果：候选池已全部处理或为空', {
             poolSize: pool.length,
@@ -1405,27 +1762,52 @@ async function runInitialFilter(state) {
     });
 
     if (queue.length === 0) {
-        // 没可挑的了：检查当前页是否还有"可扩池"的能力。load more 按钮或联想流都算。
         const canExpand = Boolean(findLoadMoreBtn()) || Boolean(getRelatedItemsRoot());
-
-        // collected 为空意味着所有商品已上传清空，当前页没有任何待处理候选。
-        // 此时即便有"查看更多"按钮，继续扫描也只会得到全是 seenIds 的商品，
-        // 永远无法通过 batchLoaded gate，形成死循环。直接结束采集。
         const collectedExhausted = (state.collected?.length || 0) === 0;
+
         if (getTotalCollected(state) >= state.config.totalLimit || !canExpand || collectedExhausted) {
+
+            // ── [节点] filter:finish ───────────────────────────────────
+            // 判断：满足以下任一条件就结束：
+            //   ① totalCollected >= totalLimit（采集量达上限）
+            //   ② canExpand=false（没有"查看更多"也没有联想区，无法获取新商品）
+            //   ③ collectedExhausted=true（collected 已全部上传清空，再采也是重复的 seenId）
             if (collectedExhausted && canExpand) {
                 logAction('warn', '当前页 collected 已全部上传清空，继续扫描无法得到新目标，结束采集', {
                     totalCollected: getTotalCollected(state),
                     seenGoodsIdsSize: (state.seenGoodsIds || []).length,
                 });
+                traceNode('filter', 'finish', 'collected 全部上传清空，继续扫描只会得到已见 ID，结束采集', {
+                    totalCollected: getTotalCollected(state),
+                    seenCount: (state.seenGoodsIds || []).length,
+                    canExpand,
+                    collectedExhausted,
+                }, '→ finish()');
             } else {
                 logAction('warn', '无法继续扩池，准备结束采集');
+                traceNode('filter', 'finish', '无候选且无法扩池，采集自然结束', {
+                    totalCollected: getTotalCollected(state),
+                    totalLimit: state.config.totalLimit,
+                    canExpand,
+                    poolSize: pool.length,
+                    processedCount: processed.size,
+                }, '→ finish()');
             }
             await finish(await getState());
             return;
         }
 
+        // ── [节点] filter:expand_pool ──────────────────────────────────
+        // 判断：候选池空 + 但页面还能扩池（有"查看更多"或联想区）
+        // 决策：重置 batchStartCount，重新触发 main() 让 productStreamTick 采更多商品
         logAction('info', '当前页仍可扩池（有查看更多或联想区），重置 batch 继续采');
+        traceNode('filter', 'expand_pool', '候选池为空但页面仍可继续加载商品，重置 batch 计数扩充候选', {
+            canExpand,
+            hasLoadMore: Boolean(findLoadMoreBtn()),
+            hasRelated: Boolean(getRelatedItemsRoot()),
+            currentCycles: state.stats.cycles || 0,
+            batchStartCountBefore: state.batchStartCount,
+        }, '→ 重置 batchStartCount，延迟 1s 重新触发 main()');
         await patchState({
             phase: 'listing',
             batchStartCount: getTotalCollected(state),
@@ -1445,10 +1827,16 @@ async function runInitialFilter(state) {
         resetQueue: true,
         incrementCycles: true,
     });
+    // 辅助模式记录候选总数和当前索引，供 popup 上一个/下一个按钮使用
+    await patchState({targetQueueIndex: 0});
     await transitionTo(FSM_STATES.TARGET_SELECTED, {
         phase: 'navigating',
         reason: 'initial-filter-hit',
     });
+    // 先通知 popup 候选数量（高亮前发出，避免 scrollToRenderedAnchor 阻塞导致按钮迟迟不可用）
+    logAction('info', `[candidatesReady] 即将发送 → index=0 total=${queue.length} isConservative=${isConservative}`);
+    notify({action: 'candidatesReady', index: 0, total: queue.length, isConservative});
+    logAction('info', `[candidatesReady] 已发送`);
     await highlightPendingItem(queue[0], '初筛命中，点击后进入下一商品');
 }
 
@@ -1470,7 +1858,15 @@ async function scrapeAndUpsertCurrentProduct() {
     const currentUrl = location.href;
     const currentId = getGoodsIdFromUrl(currentUrl);
     if (!currentId) return;
+
+    // ── [节点] detail:start ────────────────────────────────────────────
+    // 判断：URL 中提取到合法 goodsId，可以开始抓取
+    // 决策：等 DETAIL_RENDER_DELAY(2500ms) 让 Temu React 渲染完毕再提取 DOM
     logAction('info', `详情页主商品抓取开始：goodsId=${currentId}`);
+    traceNode('detail', 'start', 'URL 含商品锚点，开始提取详情页完整字段', {
+        goodsId: currentId,
+        renderDelay: DETAIL_RENDER_DELAY,
+    }, `→ sleep(${DETAIL_RENDER_DELAY}ms) 等页面渲染，然后 scrapeDetailFields()`);
 
     await transitionTo(FSM_STATES.DETAIL_SCRAPE, {
         phase: 'detail',
@@ -1519,6 +1915,20 @@ async function scrapeAndUpsertCurrentProduct() {
         stars: detailData.stars || '',
         reviews: detailData.reviews || '',
     });
+
+    // ── [节点] detail:fields_extracted ────────────────────────────────
+    // 记录提取结果：哪些字段拿到值、哪些为空（空字段不会覆盖 collected 里的旧值）
+    traceNode('detail', 'fields_extracted', '详情页 DOM 解析完成，字段已 upsert 到 collected', {
+        goodsId: currentId,
+        title: (detailData.fullTitle || '').slice(0, 50),
+        price: detailData.price || '(空)',
+        sales: detailData.sales || '(空)',
+        stars: detailData.stars || '(空)',
+        reviews: detailData.reviews || '(空)',
+        listingTime: detailData.listingTime || '(空)',
+        rawHtmlLen: detailRawBlock.rawHtml.length,
+        rawTextLen: detailRawBlock.rawText.length,
+    }, detailRawBlock.rawHtml.length > 0 ? '字段完整，已写入 collected' : '⚠️ rawHtml 为空，可能页面未完全渲染');
 
     await patchState({
         targetQueue: [],
@@ -1682,7 +2092,11 @@ async function ensureRelatedAreaReady(currentId) {
     notify({action: 'relatedAutoScrolling'});
     debugLog('related-area-start', {currentId});
 
-    await scrollToPageBottomForRelatedRender();
+    // 辅助模式：用户在场，跳过强制滚底（避免干扰用户视角）
+    const state = await getState();
+    if (state.config?.collectionMode !== COLLECTION_MODES.CONSERVATIVE) {
+        await scrollToPageBottomForRelatedRender();
+    }
 
     const relatedArea = await waitForRelatedArea();
     if (!relatedArea) {
@@ -1813,6 +2227,10 @@ async function finish(state) {
     await finishBackendRun('completed', getTotalCollected(afterUpload));
     await patchState({running: false, phase: 'done'});
     const latest = await getState();
+
+    // trace 上传后端（内部会先 flush 再 POST，上传成功后自动清本地 storage）
+    await flushAndUploadTrace(latest.runUuid || _traceRunId);
+
     notify({
         action: 'done',
         total: getTotalCollected(latest),
@@ -2732,12 +3150,9 @@ async function handleManualLoadMoreClick() {
     });
     const hasGrowth = await waitForListingGrowth(previousCount);
     if (!hasGrowth) {
-        const fallbackOk = await fallbackToTargetSelectionWhenLoadMoreStalls(
-            '手动点击“查看更多商品”后 3 秒内没有新增商品'
-        );
-        if (!fallbackOk) {
-            await enterWindControl('手动点击“查看更多商品”后 3 秒内没有新增商品');
-        }
+        logAction('warn', '手动点击”查看更多”后无新增，直接进入初筛继续流程');
+        const latestState = await getState();
+        await runInitialFilter(latestState);
         return;
     }
     showToast('列表已继续加载', 'success');
@@ -2763,16 +3178,82 @@ async function handleAutoLoadMoreClick(button, waitSec) {
  * @param {number} waitSec
  */
 function scheduleLoadMoreResume(waitSec) {
-
     if (pendingLoadMoreResumeTimer) {
         clearTimeout(pendingLoadMoreResumeTimer);
     }
 
-    pendingLoadMoreResumeTimer = setTimeout(() => {
-        pendingLoadMoreResumeTimer = null;
-        mainLock = false;
-        main();
-    }, waitSec * 1000);
+    const actualMs = jitteredMs(waitSec);
+
+    // 辅助模式：用户在场，无需模拟真人滚动；激进模式才启用反风控滚动
+    getState().then(state => {
+        const isAggressive = state.config?.collectionMode === COLLECTION_MODES.AGGRESSIVE;
+        logAction('info', `下次扫描将在 ${(actualMs / 1000).toFixed(1)}s 后恢复（基准 ${waitSec}s ±30%）${isAggressive ? '，期间模拟真人滚动' : ''}`);
+
+        const scrollInterval = isAggressive ? simulateHumanScrollDuring(actualMs) : null;
+
+        pendingLoadMoreResumeTimer = setTimeout(() => {
+            if (scrollInterval) clearInterval(scrollInterval);
+            pendingLoadMoreResumeTimer = null;
+            mainLock = false;
+            main();
+        }, actualMs);
+    });
+}
+
+/**
+ * 在指定时间窗口内模拟真人随机上下滚动。
+ * 每隔 1.5~3.5s 随机选一次方向和幅度，滚动距离 80~400px。
+ * 偶尔（30% 概率）短暂回滚，模拟用户看了一眼又往下的习惯。
+ *
+ * @param {number} windowMs 总持续时间，到期后调用方负责 clearInterval
+ * @returns {number} intervalId，供调用方在 windowMs 到期时清除
+ */
+function simulateHumanScrollDuring(windowMs) {
+    // 首次滚动延迟随机化，不要一点完就立刻动
+    const firstDelay = 800 + Math.random() * 1200;
+    let totalElapsed = firstDelay;
+
+    const tick = () => {
+        if (totalElapsed >= windowMs) return;
+
+        const scrollHeight = document.documentElement.scrollHeight;
+        const viewHeight = window.innerHeight;
+        const currentY = window.scrollY;
+        const maxScroll = scrollHeight - viewHeight;
+
+        // 主方向：偏向向下（70% 向下，30% 向上）
+        const goDown = Math.random() < 0.7;
+        const distance = Math.round(80 + Math.random() * 320); // 80~400px
+
+        let targetY = goDown
+            ? Math.min(currentY + distance, maxScroll)
+            : Math.max(currentY - distance, 0);
+
+        // 30% 概率：先小幅反向再继续，模拟"扫了一眼往回看"
+        const doGlance = Math.random() < 0.3;
+        if (doGlance) {
+            const glanceBack = Math.round(40 + Math.random() * 80);
+            const glanceY = goDown
+                ? Math.max(targetY - glanceBack, 0)
+                : Math.min(targetY + glanceBack, maxScroll);
+            window.scrollTo({ top: glanceY, behavior: 'smooth' });
+            setTimeout(() => {
+                window.scrollTo({ top: targetY, behavior: 'smooth' });
+            }, 300 + Math.random() * 400);
+        } else {
+            window.scrollTo({ top: targetY, behavior: 'smooth' });
+        }
+    };
+
+    // 用 setInterval 定期触发，间隔 1500~3500ms 随机
+    const intervalMs = 1500 + Math.random() * 2000;
+    setTimeout(tick, firstDelay); // 第一次延迟触发
+    const id = setInterval(() => {
+        totalElapsed += intervalMs;
+        tick();
+    }, intervalMs);
+
+    return id;
 }
 
 /**
@@ -2916,11 +3397,9 @@ async function performLoadMoreClick(button, waitSec, notifyAction, windReason) {
 
     const hasGrowth = await waitForListingGrowth(previousCount);
     if (!hasGrowth) {
-        logAction('error', '点击"查看更多"后无新增，疑似风控');
-        const fallbackOk = await fallbackToTargetSelectionWhenLoadMoreStalls(windReason);
-        if (!fallbackOk) {
-            await enterWindControl(windReason);
-        }
+        logAction('warn', '点击"查看更多"后无新增，直接进入初筛继续流程');
+        const state = await getState();
+        await runInitialFilter(state);
         return false;
     }
 
@@ -4215,46 +4694,46 @@ function selectPriorityItems(items, limit = 1, recentNames = []) {
         threshold: DIVERSITY_OVERLAP_THRESHOLD,
     });
 
-    // 在低重叠组里用原有优先级逻辑选取
-    const pickFrom = (pool) => {
+    // 排序函数：无评分优先（销量降序），其次全量（销量降序+评价升序）
+    const sortedPool = (pool) => {
         const poolItems = pool.map((e) => e.item);
-        const priorityOne = poolItems
-            .filter((item) => !normalizeStar(item.starRating))
-            .sort(compareBySalesDesc);
-        if (priorityOne.length > 0) return priorityOne.slice(0, limit);
-        return [...poolItems].sort(compareBySalesDescThenReviewsAsc).slice(0, limit);
+        const noStar = poolItems.filter((item) => !normalizeStar(item.starRating)).sort(compareBySalesDesc);
+        const hasStar = poolItems.filter((item) => normalizeStar(item.starRating)).sort(compareBySalesDescThenReviewsAsc);
+        return [...noStar, ...hasStar];
     };
 
-    if (diverse.length > 0) {
-        const result = pickFrom(diverse);
-        if (result.length > 0) {
-            const chosen = result[0];
-            const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
-            logAction('info', `[selectPriorityItems] 命中低重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {
-                goodsId: chosen.goodsId,
-                overlap,
-                group: 'diverse',
-            });
-            return result;
+    // limit=1（激进模式）：保持原逻辑，低重叠组优先，为空才降级
+    // limit>1（辅助模式）：低重叠排前，高重叠排后，合并返回 limit 条
+    if (limit === 1) {
+        if (diverse.length > 0) {
+            const result = sortedPool(diverse).slice(0, 1);
+            if (result.length > 0) {
+                const chosen = result[0];
+                const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
+                logAction('info', `[selectPriorityItems] 命中低重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {goodsId: chosen.goodsId, overlap, group: 'diverse'});
+                return result;
+            }
         }
+        if (penalized.length > 0) {
+            const result = sortedPool(penalized).slice(0, 1);
+            if (result.length > 0) {
+                const chosen = result[0];
+                const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
+                logAction('warn', `[selectPriorityItems] 低重叠组为空，降级使用高重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {goodsId: chosen.goodsId, overlap, group: 'penalized'});
+                return result;
+            }
+        }
+        return [];
     }
 
-    // 低重叠组为空，降级到高重叠组
-    if (penalized.length > 0) {
-        const result = pickFrom(penalized);
-        if (result.length > 0) {
-            const chosen = result[0];
-            const overlap = calcOverlap(chosen.name || chosen.fullTitle || '', recentBigrams);
-            logAction('warn', `[selectPriorityItems] 低重叠组为空，降级使用高重叠组：goodsId=${chosen.goodsId} 名称="${(chosen.name || chosen.fullTitle || '').slice(0, 20)}" overlap=${overlap}`, {
-                goodsId: chosen.goodsId,
-                overlap,
-                group: 'penalized',
-            });
-            return result;
-        }
+    // limit > 1：低重叠在前，高重叠在后，合并取 limit 条
+    const combined = [...sortedPool(diverse), ...sortedPool(penalized)].slice(0, limit);
+    if (combined.length > 0) {
+        logAction('info', `[selectPriorityItems] 多候选模式：低重叠 ${diverse.length} 条 + 高重叠 ${penalized.length} 条 → 返回 ${combined.length} 条`, {
+            total: combined.length, diverseCount: diverse.length, penalizedCount: penalized.length,
+        });
     }
-
-    return [];
+    return combined;
 }
 
 /**
@@ -4913,6 +5392,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             state.lastDiscoveryUrl = location.href;
             state.listingUrl = location.href;
             state.runUuid = runResponse?.ok ? (runResponse.run_uuid || '') : '';
+            initTrace(state.runUuid || `local_${Date.now()}`);
             state.workflow = {
                 current: getInitialWorkflowState(taskMode, pageType),
                 previous: '',
@@ -4942,6 +5422,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await uploadPendingBatch(true);
             const latest = await getState();
             await finishBackendRun('stopped', getTotalCollected(latest));
+            await flushAndUploadTrace(latest.runUuid || _traceRunId);
             await patchState({running: false, phase: 'idle'});
             notifyState(await getState());
             sendResponse({ok: true});
@@ -4956,6 +5437,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 running: state.running,
                 total: getTotalCollected(state),
                 queueLen: state.targetQueue.length,
+                targetQueueIndex: state.targetQueueIndex || 0,
                 config: state.config,
                 stats: state.stats,
                 workflow: state.workflow,
@@ -4997,6 +5479,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const host = document.getElementById('temu-timeline-host');
         if (host) host.style.display = timelineVisible ? '' : 'none';
         sendResponse({ok: true});
+        return true;
+    }
+
+    // 辅助模式：上一个/下一个候选商品
+    if (message.action === 'prevTarget' || message.action === 'nextTarget') {
+        (async () => {
+            const state = await getState();
+            const queue = state.targetQueue || [];
+            if (queue.length === 0) { sendResponse({ok: false}); return; }
+            const delta = message.action === 'nextTarget' ? 1 : -1;
+            const newIndex = Math.max(0, Math.min(queue.length - 1, (state.targetQueueIndex || 0) + delta));
+            await patchState({targetQueueIndex: newIndex});
+            clearPendingAutoClick();
+            // 先更新 popup 导航条，再高亮（避免 scrollToRenderedAnchor 阻塞）
+            logAction('info', `[candidatesReady] 翻页发送 → index=${newIndex} total=${queue.length}`);
+            notify({action: 'candidatesReady', index: newIndex, total: queue.length, isConservative: true});
+            sendResponse({ok: true, index: newIndex, total: queue.length});
+            await highlightPendingItem(queue[newIndex], '初筛命中，点击后进入下一商品');
+        })();
+        return true;
+    }
+
+    if (message.action === 'refreshCandidates') {
+        (async () => {
+            logAction('info', '[refreshCandidates] 手动触发：重新扫描当前页 Fiber 数据并筛选候选');
+            const state = await getState();
+            const currentId = getGoodsIdFromUrl(location.href);
+            const shouldRemoveLocalWarehouse = Boolean(state.config?.removeLocalWarehouse);
+
+            // 重新读取当前页所有商品流 Fiber 数据，补充到 collected
+            const streams = enumerateProductStreams();
+            for (const stream of streams) {
+                const items = await readItemsFromReactFiber({
+                    streamId: stream.id,
+                    sourceTag: stream.sourceTag,
+                    currentId,
+                    shouldRemoveLocalWarehouse,
+                });
+                const removedCount = items._removedCount || 0;
+                delete items._removedCount;
+                const added = await upsertItems(items);
+                logAction('info', `[refreshCandidates] 流 [${stream.id}] 读取 ${items.length} 条，新增 ${added} 条，过滤本地仓 ${removedCount} 条`);
+            }
+
+            // 重置 processedIds 中属于当前队列的项，让这批候选可以被重新选中
+            // 注意：只清空 targetQueue，不动已完成的 processedIds，避免重复跳转已处理商品
+            await patchState({targetQueue: [], targetQueueIndex: 0});
+
+            // 重新运行初筛，重建候选队列
+            const refreshed = await getState();
+            await runInitialFilter(refreshed);
+            sendResponse({ok: true});
+        })();
         return true;
     }
 

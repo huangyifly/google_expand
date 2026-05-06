@@ -403,6 +403,73 @@
             background: #e6dccd;
         }
 
+        .candidate-nav {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 9px;
+            padding: 8px 10px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--surface-soft);
+        }
+
+        .candidate-nav.visible {
+            display: flex;
+        }
+
+        .candidate-nav .nav-label {
+            flex: 1;
+            font-size: 11px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .candidate-nav .nav-label strong {
+            color: var(--text);
+            font-weight: 700;
+        }
+
+        .nav-btn {
+            width: auto;
+            margin: 0;
+            padding: 5px 10px;
+            font-size: 12px;
+            border-radius: 7px;
+            background: var(--primary);
+            color: #fff;
+            flex-shrink: 0;
+        }
+
+        .nav-btn:hover:not(:disabled) {
+            background: var(--primary-strong);
+            opacity: 1;
+        }
+
+        .nav-btn-refresh {
+            background: var(--cta);
+            padding: 5px 8px;
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .nav-btn-refresh:hover:not(:disabled) {
+            background: var(--cta-strong);
+            opacity: 1;
+        }
+
+        .nav-btn-refresh.spinning {
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to   { transform: rotate(360deg); }
+        }
+
+
         .auth-meta {
             margin-top: 8px;
             margin-bottom: 6px;
@@ -473,6 +540,14 @@
                     <option value="AGGRESSIVE">激进自动模式</option>
                 </select>
             </div>
+        </div>
+
+        <!-- 辅助模式候选翻页导航，初筛后显示 -->
+        <div id="candidateNav" class="candidate-nav">
+            <button id="btnPrevTarget" class="nav-btn" disabled>← 上一个</button>
+            <span class="nav-label">候选 <strong id="navIndex">—</strong> / <strong id="navTotal">—</strong></span>
+            <button id="btnNextTarget" class="nav-btn" disabled>下一个 →</button>
+            <button id="btnRefreshCandidates" class="nav-btn nav-btn-refresh" title="重新扫描当前页商品并筛选候选">↻</button>
         </div>
 
         <button id="btnMain" class="btn-main">开始采集</button>

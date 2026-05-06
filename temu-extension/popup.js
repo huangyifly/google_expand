@@ -17,6 +17,14 @@ const btnClear = document.getElementById('btnClear');
 
 const sTotal = document.getElementById('sTotal');
 
+// 辅助模式候选翻页导航
+const candidateNav = document.getElementById('candidateNav');
+const btnPrevTarget = document.getElementById('btnPrevTarget');
+const btnNextTarget = document.getElementById('btnNextTarget');
+const btnRefreshCandidates = document.getElementById('btnRefreshCandidates');
+const navIndex = document.getElementById('navIndex');
+const navTotal = document.getElementById('navTotal');
+
 const cfgCollectionMode = document.getElementById('cfgCollectionMode');
 const cfgInterval = document.getElementById('cfgInterval');
 const cfgBatch = document.getElementById('cfgBatch');
@@ -31,12 +39,11 @@ const loginBtn = document.getElementById('loginBtn');
 const loginError = document.getElementById('loginError');
 const logoutBtn = document.getElementById('logoutBtn');
 const userInfo = document.getElementById('userInfo');
-
 const LOG_VISIBLE_KEY = 'temu_log_visible';
 
-// popup 打开时从 storage 读取日志面板偏好并同步 checkbox
+// popup 打开时从 storage 读取日志面板偏好
 chrome.storage.local.get([LOG_VISIBLE_KEY], (result) => {
-  const visible = result[LOG_VISIBLE_KEY] !== false; // 默认显示
+  const visible = result[LOG_VISIBLE_KEY] !== false;
   if (cfgLogVisible) cfgLogVisible.checked = visible;
 });
 
@@ -166,6 +173,7 @@ function fillConfig(config = {}) {
   if (config.batchSize !== undefined) cfgBatch.value = config.batchSize;
   if (config.totalLimit !== undefined) cfgLimit.value = config.totalLimit;
   if (cfgRemoveLocalWarehouse) cfgRemoveLocalWarehouse.checked = config.removeLocalWarehouse !== false;
+  syncNavByMode();
 }
 
 /**
@@ -217,6 +225,12 @@ function syncFromState() {
     if (!state.running && state.total > 0) {
       setStatus(`当前已采集 ${state.total} 条数据，可继续采集。`);
     }
+    // popup 打开时从 state 恢复候选导航条（getState 响应里用 queueLen/targetQueueIndex，不含完整 targetQueue 数组）
+    const isConservative = state.config?.collectionMode === 'CONSERVATIVE';
+    const queueLen = state.queueLen || 0;
+    const queueIdx = state.targetQueueIndex || 0;
+    console.log('[popup] syncFromState 恢复导航条 isConservative=', isConservative, 'queueLen=', queueLen, 'queueIdx=', queueIdx);
+    updateCandidateNav(queueIdx, queueLen, isConservative);
   });
 }
 
@@ -279,13 +293,20 @@ port.onMessage.addListener((message) => {
   }
 
   if (message.action === 'filtered') {
-    setPhase('filtering', message.queued ? '初筛后已选中 1 条目标商品' : '当前批次没有命中目标商品');
+    setPhase('filtering', message.queued ? '初筛后已选中目标商品' : '当前批次没有命中目标商品');
     setStatus(
       message.queued
-        ? '商品优先级筛选完成，已选出 1 条目标商品。'
+        ? '商品优先级筛选完成，已选出目标商品。'
         : '商品优先级筛选完成，但当前批次没有符合条件的新商品。',
       message.queued ? 'ok' : ''
     );
+    return;
+  }
+
+  if (message.action === 'candidatesReady') {
+    console.log('[popup] candidatesReady 收到:', message.index, '/', message.total, 'isConservative=', message.isConservative);
+    updateCandidateNav(message.index, message.total, message.isConservative);
+    console.log('[popup] updateCandidateNav 调用完，_navTotal=', _navTotal, 'next disabled=', btnNextTarget?.disabled);
     return;
   }
 
@@ -337,7 +358,11 @@ port.onMessage.addListener((message) => {
     setRunningUI(false);
     setPhase('done');
     updateStats(message);
-    setStatus(`采集结束，累计保存 ${message.total} 条数据。`, 'ok');
+    setStatus(`采集结束，累计保存 ${message.total} 条数据。追踪日志已上传后端。`, 'ok');
+    // 采集结束，清空导航条候选缓存，回到等待状态
+    _navIndex = 0;
+    _navTotal = 0;
+    syncNavByMode();
   }
 });
 
@@ -453,6 +478,7 @@ cfgRemoveLocalWarehouse?.addEventListener('change', () => {
         renderWorkflow({ config: response.config || {} });
       }
     });
+    syncNavByMode();
   });
 });
 
@@ -492,6 +518,87 @@ loginBtn?.addEventListener('click', async () => {
 logoutBtn?.addEventListener('click', async () => {
   await callRuntime('logout');
   setAuthUI(false, null);
+});
+
+// ── 候选翻页导航 ──────────────────────────────────────────────────────────────
+
+// 模块级缓存：记住最近一次 candidatesReady 的数据，防止 stateSync → fillConfig → syncNavByMode
+// 把已就绪的导航条重置回 "— / —" 状态。
+let _navIndex = 0;
+let _navTotal = 0;
+
+/**
+ * 更新导航条显示。
+ * - isConservative=false → 隐藏，清空缓存
+ * - isConservative=true, total>0 → 显示并激活按钮
+ * - isConservative=true, total=0 → 显示但禁用（等待初筛）
+ * @param {number} index 当前索引（0-based）
+ * @param {number} total 候选总数
+ * @param {boolean} isConservative 是否辅助模式
+ */
+function updateCandidateNav(index, total, isConservative) {
+  if (!candidateNav) return;
+  // 每次调用都打印，暴露是哪条调用链把按钮禁用
+  console.log('[nav] updateCandidateNav called: index=', index, 'total=', total, 'isConservative=', isConservative, '\n', new Error().stack);
+  if (!isConservative) {
+    candidateNav.classList.remove('visible');
+    _navIndex = 0;
+    _navTotal = 0;
+    return;
+  }
+  // 更新缓存
+  _navIndex = index;
+  _navTotal = total;
+  candidateNav.classList.add('visible');
+  if (total > 0) {
+    navIndex.textContent = index + 1;
+    navTotal.textContent = total;
+    btnPrevTarget.disabled = index <= 0;
+    btnNextTarget.disabled = index >= total - 1;
+  } else {
+    navIndex.textContent = '—';
+    navTotal.textContent = '—';
+    btnPrevTarget.disabled = true;
+    btnNextTarget.disabled = true;
+  }
+}
+
+/**
+ * 根据当前模式选择器同步导航条显示/隐藏。
+ * 复用 _navIndex/_navTotal 缓存，不会把已就绪的按钮重置回禁用状态。
+ */
+function syncNavByMode() {
+  const isConservative = (cfgCollectionMode?.value || 'CONSERVATIVE') !== 'AGGRESSIVE';
+  // 切换到激进模式：隐藏并清空缓存（下次切回辅助从头开始）
+  // 切换到辅助模式或刷新：用缓存数据重绘，不改变按钮可用状态
+  console.log('[popup] syncNavByMode 调用，mode=', cfgCollectionMode?.value, '_navTotal=', _navTotal);
+  updateCandidateNav(_navIndex, _navTotal, isConservative);
+}
+
+btnPrevTarget?.addEventListener('click', () => {
+  sendToContent('prevTarget', {}, (resp) => {
+    if (resp?.ok) updateCandidateNav(resp.index, resp.total, true);
+  });
+});
+
+btnNextTarget?.addEventListener('click', () => {
+  sendToContent('nextTarget', {}, (resp) => {
+    if (resp?.ok) updateCandidateNav(resp.index, resp.total, true);
+  });
+});
+
+btnRefreshCandidates?.addEventListener('click', () => {
+  if (btnRefreshCandidates.disabled) return;
+  btnRefreshCandidates.disabled = true;
+  btnRefreshCandidates.classList.add('spinning');
+  setStatus('正在重新扫描当前页商品并筛选候选…');
+  sendToContent('refreshCandidates', {}, (resp) => {
+    btnRefreshCandidates.disabled = false;
+    btnRefreshCandidates.classList.remove('spinning');
+    if (!resp?.ok) {
+      setStatus(resp?.error || '重新筛选失败，请确认已打开 Temu 页面。', 'err');
+    }
+  });
 });
 
 async function init() {

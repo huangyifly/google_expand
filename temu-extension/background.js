@@ -112,6 +112,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     'manualLoadMoreClicked',
     'autoLoadMoreClicked',
     'filtered',
+    'candidatesReady',
     'detailDone',
     'oneClickListingClicked',
     'relatedAutoScrolling',
@@ -128,12 +129,64 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
-  const backendActions = ['backendStartRun', 'backendUploadBatch', 'backendFinishRun', 'fetchExclusionKeywords'];
+  const backendActions = ['backendStartRun', 'backendUploadBatch', 'backendFinishRun', 'backendUploadTrace', 'fetchExclusionKeywords'];
 
   if (backendActions.includes(msg.action)) {
     handleBackendAction(msg)
       .then((response) => sendResponse(response))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (msg.action === 'readFiberData') {
+    (async () => {
+      try {
+        const tabId = sender?.tab?.id;
+        if (!tabId) return sendResponse({ ok: false, error: '无法获取 tabId' });
+
+        const results = await chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: () => {
+            const readFiber = (dom) => {
+              const key = Object.keys(dom).find(
+                k => k.startsWith('__reactFiber') || k.startsWith('__reactProps')
+              );
+              if (!key) return null;
+              let fiber = dom[key];
+              let depth = 20;
+              while (fiber && depth--) {
+                const o = fiber?.pendingProps?.goodsInfo ||
+                          fiber?.memoizedProps?.children?.props?.data?.data;
+                if (o?.goodsId) return o;
+                fiber = fiber.return;
+              }
+              return null;
+            };
+
+            const map = new Map();
+            document.querySelectorAll('[data-tooltip^="goodName-"]').forEach(node => {
+              let cur = node;
+              for (let i = 0; cur && i < 8; i++, cur = cur.parentElement) {
+                const o = readFiber(cur);
+                if (o?.goodsId) {
+                  const id = o.goodsId.toString();
+                  if (!map.has(id)) map.set(id, o);
+                  break;
+                }
+              }
+            });
+
+            return Array.from(map.values());
+          },
+        });
+
+        const items = results?.[0]?.result || [];
+        sendResponse({ ok: true, items });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || String(e), items: [] });
+      }
+    })();
     return true;
   }
 
@@ -206,6 +259,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     'triggerLoadMoreNow',
     'applyLocalWarehouseFilter',
     'setWorkflowState',
+    'prevTarget',
+    'nextTarget',
+    'refreshCandidates',
   ];
 
   if (controlActions.includes(msg.action)) {
@@ -1879,6 +1935,12 @@ async function handleBackendAction(msg) {
     return postJson(`/api/runs/${encodeURIComponent(runUuid)}/finish`, msg.payload || {});
   }
 
+  if (msg.action === 'backendUploadTrace') {
+    const runUuid = msg.runUuid;
+    if (!runUuid) return { ok: false, error: '缺少 runUuid' };
+    return postJson(`/api/runs/${encodeURIComponent(runUuid)}/trace`, { entries: msg.entries || [] });
+  }
+
   if (msg.action === 'fetchExclusionKeywords') {
     return getJson('/api/config/exclusion-keywords');
   }
@@ -1969,3 +2031,4 @@ async function getJson(path) {
     ...data,
   };
 }
+
