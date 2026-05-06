@@ -172,6 +172,7 @@ function fillConfig(config = {}) {
   if (config.batchSize !== undefined) cfgBatch.value = config.batchSize;
   if (config.totalLimit !== undefined) cfgLimit.value = config.totalLimit;
   if (cfgRemoveLocalWarehouse) cfgRemoveLocalWarehouse.checked = config.removeLocalWarehouse !== false;
+  syncNavByMode();
 }
 
 /**
@@ -464,6 +465,7 @@ cfgRemoveLocalWarehouse?.addEventListener('change', () => {
         renderWorkflow({ config: response.config || {} });
       }
     });
+    syncNavByMode();
   });
 });
 
@@ -515,15 +517,33 @@ logoutBtn?.addEventListener('click', async () => {
  */
 function updateCandidateNav(index, total, isConservative) {
   if (!candidateNav) return;
-  if (!isConservative || total <= 1) {
+  if (!isConservative) {
     candidateNav.classList.remove('visible');
     return;
   }
+  // 辅助模式：立即显示导航条；候选未就绪时两端按钮禁用、计数显示 —
   candidateNav.classList.add('visible');
-  navIndex.textContent = index + 1;
-  navTotal.textContent = total;
-  btnPrevTarget.disabled = index <= 0;
-  btnNextTarget.disabled = index >= total - 1;
+  if (total > 0) {
+    navIndex.textContent = index + 1;
+    navTotal.textContent = total;
+    btnPrevTarget.disabled = index <= 0;
+    btnNextTarget.disabled = index >= total - 1;
+  } else {
+    navIndex.textContent = '—';
+    navTotal.textContent = '—';
+    btnPrevTarget.disabled = true;
+    btnNextTarget.disabled = true;
+  }
+}
+
+/** 根据当前模式选择器立即同步导航条显示/隐藏。 */
+function syncNavByMode() {
+  const isConservative = (cfgCollectionMode?.value || 'CONSERVATIVE') !== 'AGGRESSIVE';
+  if (isConservative) {
+    updateCandidateNav(0, 0, true);
+  } else {
+    if (candidateNav) candidateNav.classList.remove('visible');
+  }
 }
 
 btnPrevTarget?.addEventListener('click', () => {
